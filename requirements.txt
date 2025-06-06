@@ -1,0 +1,5 @@
+atari-py
+gym
+gym[atari,accept-rom-license]
+stable-baselines3[extra]
+gymnasium[atari,accept-rom-license]==0.29.1
