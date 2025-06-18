@@ -56,7 +56,7 @@ def main(args):
     best_test_episode_reward = None
 
     if args.resume_path is not None:
-        state_dict = torch.load(args.resume_path)
+        state_dict = torch.load(args.resume_path, map_location=device)
         rollout_policy.load_state_dict(state_dict['rollout_policy'])
         i2a_model.load_state_dict(state_dict['i2a_model'])
         i2a_optimizer.load_state_dict(state_dict['i2a_optimizer'])

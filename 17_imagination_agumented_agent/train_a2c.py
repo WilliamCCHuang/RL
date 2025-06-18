@@ -128,7 +128,7 @@ def main(args):
     best_test_episode_reward = None
 
     if args.resume_path is not None:
-        state_dict = torch.load(args.resume_path)
+        state_dict = torch.load(args.resume_path, map_location=device)
         model.load_state_dict(state_dict['model'])
         optimizer.load_state_dict(state_dict['optimizer'])
         step_idx = state_dict['step']
