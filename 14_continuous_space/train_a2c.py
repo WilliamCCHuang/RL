@@ -10,7 +10,7 @@ from a2c import A2C, train_a2c, test_a2c
 from experience import FirstLastExperienceMemory
 
 
-def pack_exp_batch(exp_batch, model, last_gamma, device):
+def pack_exp_into_batch(exp_batch, model, last_gamma, device):
     obs_history = []
     value_history = []
     action_history = []
@@ -26,9 +26,9 @@ def pack_exp_batch(exp_batch, model, last_gamma, device):
             not_done_idx.append(idx)
             last_obs.append(exp.last_obs)
 
-    obs_history = torch.tensor(obs_history).to(device)
-    action_history = torch.tensor(action_history).to(device)
-    value_history = torch.tensor(value_history).float().to(device)
+    obs_history = torch.tensor(np.array(obs_history)).to(device)
+    action_history = torch.tensor(np.array(action_history)).to(device)
+    value_history = torch.tensor(np.array(value_history)).float().to(device)
 
     if not not_done_idx:
         last_obs = torch.tensor(last_obs).to(device)
@@ -74,7 +74,7 @@ def main(args):
         optimizer.load_state_dict(state_dict['optimizer'])
         step_idx = state_dict['step']
         best_test_episode_reward = state_dict['best_test_episode_reward']
-        print(f'Loaded resume. Continue training from the step {step_idx}. Best test episode reward: {best_test_episode_reward}')
+        print(f'Loaded resume. Continue training from the step {step_idx}. Best test episode reward: {best_test_episode_reward:.2f}')
 
     exp_batch = []
     for first_last_exp in exp_memory:
@@ -91,7 +91,7 @@ def main(args):
             continue
         
         last_gamma = args.discount_rate ** args.reward_steps
-        obs_history, value_history, action_history = pack_exp_batch(exp_batch, model, last_gamma, device)
+        obs_history, value_history, action_history = pack_exp_into_batch(exp_batch, model, last_gamma, device)
         exp_batch = []
 
         train_a2c(model, obs_history, value_history, action_history, optimizer, writer, step_idx, args, device)
@@ -105,7 +105,6 @@ def main(args):
         # do testing
         if step_idx % args.test_steps == 0:
             test_avg_reward, test_avg_steps = test_a2c(model, test_env, num_rounds=10, device=device)
-            print(f'Step: {step_idx} | test steps: {test_avg_steps:.2f} | test reward: {test_avg_reward:.2f} | best test reward: {best_test_episode_reward:.2f}')
 
             if best_test_episode_reward < test_avg_reward:
                 best_test_episode_reward = test_avg_reward
@@ -118,6 +117,8 @@ def main(args):
                     'best_test_episode_reward': best_test_episode_reward,
                 }
                 torch.save(state_dict, file_name)
+
+            print(f'Step: {step_idx} | test steps: {test_avg_steps:.2f} | test reward: {test_avg_reward:.2f} | best test reward: {best_test_episode_reward:.2f}')
 
 
 if __name__ == '__main__':
