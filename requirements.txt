@@ -3,3 +3,4 @@ gym
 gym[atari,accept-rom-license]
 stable-baselines3[extra]==2.4
 gymnasium[atari,accept-rom-license]==0.29.1
+pybullet
