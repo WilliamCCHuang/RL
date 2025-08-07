@@ -74,7 +74,7 @@ def train_a2c(model, obs_history, value_history, action_history, optimizer, writ
 
     loss_value = F.mse_loss(pred_values, value_history)
 
-    adv_values = pred_values - value_history  # (32, 1)
+    adv_values = value_history - pred_values  # (32, 1)
     log_pred_action_prob = adv_values * cal_log_policy(mus, vars, action_history)  # (32, 8)
     loss_policy = - log_pred_action_prob.mean()
     
@@ -98,7 +98,7 @@ def test_a2c(model, env, num_rounds=10, device='cpu'):
         obs = env.reset()
 
         while True:
-            obs_tensor = torch.tensor([obs]).to(device)  # (1, 28)
+            obs_tensor = torch.tensor(obs).unsqueeze(0).to(device)  # (1, 28)
             mu = model(obs_tensor)[0]  # (1, 28)
             action = mu.detach().cpu().numpy()[0]  # (28,)
             action = np.clip(action, -1, 1)
