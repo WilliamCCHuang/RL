@@ -78,7 +78,6 @@ class NStepExperienceMemory:
 
                 obs_list[env_idx] = next_obs
 
-
                 if done:
                     # output the memory deque even it is not enough as the env is done
                     if 0 < len(memory_deque) < self.n_steps:
@@ -123,7 +122,7 @@ class FirstLastExperienceMemory(NStepExperienceMemory):
         super().__init__(env, agent, n_steps+1)
 
         self.gamma = gamma
-        self.n_steps = n_steps
+        self._n_steps = n_steps  # store `n_steps` as a private property to avoid overwrite the property `n_steps` of `NStepExperienceMemory`
 
     def __iter__(self):
         for n_step_exp_list in super().__iter__():
@@ -132,7 +131,7 @@ class FirstLastExperienceMemory(NStepExperienceMemory):
 
             last_obs = None
             # if the exp is stopped earlily
-            if last_exp.done and len(n_step_exp_list) <= self.n_steps:
+            if last_exp.done and len(n_step_exp_list) <= self._n_steps:
                 pass
             else:
                 last_obs = last_exp.obs
@@ -141,7 +140,6 @@ class FirstLastExperienceMemory(NStepExperienceMemory):
             dis_reward = 0
             for exp in n_step_exp_list[::-1]:
                 dis_reward = self.gamma * dis_reward + exp.reward
-            
 
             yield FirstLastExperience(
                 obs=first_exp.obs,

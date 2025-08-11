@@ -131,7 +131,6 @@ if __name__ == '__main__':
     parser.add_argument('--discount-rate', type=float, default=0.99)
     parser.add_argument('--bs', type=float, default=32)
     parser.add_argument('--lr', type=float, default=5e-5)
-    parser.add_argument('--loss-value-coef', type=float, default=0.5)
     parser.add_argument('--loss-entropy-coef', type=float, default=1e-4)
     parser.add_argument('--test-steps', type=int, default=1000)
     parser.add_argument('--seed', type=int, default=20)
