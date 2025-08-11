@@ -117,6 +117,14 @@ def main(args):
                 }
                 torch.save(state_dict, file_name)
 
+            file_name = exp_dir / f'latest_a2c_{step_idx}_{best_test_episode_reward:.2f}.pt'
+            state_dict = {
+                'step': step_idx,
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'best_test_episode_reward': best_test_episode_reward,
+            }
+            torch.save(state_dict, file_name)
             print(f'Step: {step_idx} | test steps: {test_avg_steps:.2f} | test reward: {test_avg_reward:.2f} | best test reward: {best_test_episode_reward:.2f}')
 
 
