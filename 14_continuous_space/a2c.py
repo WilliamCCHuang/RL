@@ -60,7 +60,7 @@ def cal_log_policy(mu_tensor, var_tensor, action_tensor):
 
 
 def cal_entropy(var_tensor):
-    return -0.5 - 0.5 * torch.log(2 * torch.pi * var_tensor).mean()
+    return 0.5 + 0.5 * torch.log(2 * torch.pi * var_tensor).mean()
 
 
 def train_a2c(model, obs_history, value_history, action_history, optimizer, writer, step_idx, args, device):
@@ -74,11 +74,11 @@ def train_a2c(model, obs_history, value_history, action_history, optimizer, writ
 
     loss_value = F.mse_loss(pred_values, value_history)
 
-    adv_values = value_history - pred_values  # (32, 1)
+    adv_values = value_history - pred_values.detach()  # (32, 1)
     log_pred_action_prob = adv_values * cal_log_policy(mus, vars, action_history)  # (32, 8)
     loss_policy = - log_pred_action_prob.mean()
     
-    loss_entropy = cal_entropy(vars)
+    loss_entropy = - cal_entropy(vars)
 
     loss_total = loss_policy + loss_value + args.loss_entropy_coef * loss_entropy
     loss_total.backward()

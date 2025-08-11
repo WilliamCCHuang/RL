@@ -18,6 +18,10 @@ class DDPG(nn.Module):
     def forward(self, obs):
         actions = None  # TODO
         q_values = self.critic()
+    
+    @torch.no_grad()
+    def sample_action(self, obs):
+        return self.actor(obs)
 
 
 class QNet(nn.Module):

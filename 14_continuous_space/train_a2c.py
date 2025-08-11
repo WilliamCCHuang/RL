@@ -33,11 +33,11 @@ def pack_exp_into_batch(exp_batch, model, last_gamma, device):
     if not not_done_idx:
         last_obs = torch.tensor(last_obs).to(device)
 
-        _, _, last_obs_values = model(last_obs)
-        value_history[not_done_idx] += last_gamma * last_obs_values
+        with torch.no_grad():
+            _, _, last_obs_values = model(last_obs)
+        value_history[not_done_idx] += last_gamma * last_obs_values.detach()
 
     return obs_history, value_history, action_history
-
 
 
 def main(args):
