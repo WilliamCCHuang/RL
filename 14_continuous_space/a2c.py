@@ -90,6 +90,7 @@ def train_a2c(model, obs_history, value_history, action_history, optimizer, writ
     writer.add_scalar('loss_total', loss_total, step_idx)
 
 
+@torch.no_grad()
 def test_a2c(model, env, num_rounds=10, device='cpu'):
     rewards = 0
     steps = 0 

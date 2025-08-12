@@ -147,3 +147,40 @@ class FirstLastExperienceMemory(NStepExperienceMemory):
                 dis_reward=dis_reward,
                 last_obs=last_obs
             )
+
+
+class ExperienceMemoryReplayBuffer:
+
+    def __init__(self, exp_memory, buffer_size):
+        self.exp_memory_iter = iter(exp_memory)
+        self.buffer_size = buffer_size
+        self.buffer = []
+        self.memory_idx = 0  # indicate which stored exp to replace by a new coming exp
+
+    def __len__(self):
+        return len(self.buffer)
+    
+    @property
+    def is_full(self):
+        return len(self.buffer) == self.buffer_size
+    
+    def populate(self, num_samples):
+        # request `exp_memory` to output `num_samples` experiences
+        # then store them into buffer
+        for _ in range(num_samples):
+            exp = next(self.exp_memory_iter)
+            self._add(exp)
+
+    def _add(self, exp):
+        if len(self.buffer) < self.buffer_size:
+            self.buffer.append(exp)
+        else:
+            self.buffer[self.memory_idx] = exp
+        self.memory_idx = (self.memory_idx + 1) % self.buffer_size
+
+    def sample(self, batch_size):
+        if len(self.buffer) < batch_size:
+            return self.buffer
+        
+        keys = np.random.choice(len(self.buffer), batch_size, replace=True)
+        return [self.buffer[key] for key in keys]
