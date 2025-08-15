@@ -9,7 +9,7 @@ HID_SIZE = 400
 
 class DDPG(nn.Module):
 
-    def __init__(self, obs_size, act_size, update_weight, epsilon=1.0):
+    def __init__(self, obs_size, act_size, update_weight, epsilon=0.1):
         super().__init__()
 
         self.update_weight = update_weight
