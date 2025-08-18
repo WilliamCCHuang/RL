@@ -106,7 +106,7 @@ def train_a2c(model, obs_history, value_history, action_history, critic_optimize
     log_pred_action_prob = adv_values * cal_log_policy(mus, model.actor.logstd, action_history)  # (32, 8)
     loss_policy = - log_pred_action_prob.mean()
     
-    loss_entropy = - cal_entropy(vars)
+    loss_entropy = - cal_entropy(torch.exp(model.actor.logstd))
 
     loss_actor = loss_policy + args.loss_entropy_coef * loss_entropy
     loss_actor.backward()

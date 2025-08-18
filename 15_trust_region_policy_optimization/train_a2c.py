@@ -57,7 +57,8 @@ def main(args):
     test_env = make_atari_env(args.env_name)
 
     model = A2C(env.observation_space.shape[0], env.action_space.shape[0]).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    critic_optimizer = torch.optim.Adam(model.critic.parameters(), args.lr_critic)
+    actor_optimizer = torch.optim.Adam(model.actor.parameters(), args.lr_actor)
     print(model)
 
     exp_memory = FirstLastExperienceMemory(env, model, args.discount_rate, args.reward_steps)
@@ -70,7 +71,8 @@ def main(args):
     if args.resume_path is not None:
         state_dict = torch.load(args.resume_path, map_location=device)
         model.load_state_dict(state_dict['model'])
-        optimizer.load_state_dict(state_dict['optimizer'])
+        critic_optimizer.load_state_dict(state_dict['critic_optimizer'])
+        actor_optimizer.load_state_dict(state_dict['actor_optimizer'])
         step_idx = state_dict['step']
         best_test_episode_reward = state_dict['best_test_episode_reward']
         print(f'Loaded resume. Continue training from the step {step_idx}. Best test episode reward: {best_test_episode_reward:.2f}')
@@ -93,7 +95,7 @@ def main(args):
         obs_history, value_history, action_history = pack_exp_into_batch(exp_batch, model, last_gamma, device)
         exp_batch = []
 
-        train_a2c(model, obs_history, value_history, action_history, optimizer, writer, step_idx, args, device)
+        train_a2c(model, obs_history, value_history, action_history, critic_optimizer, actor_optimizer, writer, step_idx, args, device)
 
         step_idx += 1
 
@@ -112,7 +114,8 @@ def main(args):
                 state_dict = {
                     'step': step_idx,
                     'model': model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
+                    'critic_optimizer': critic_optimizer.state_dict(),
+                    'actor_optimizer': actor_optimizer.state_dict(),
                     'best_test_episode_reward': best_test_episode_reward,
                 }
                 torch.save(state_dict, file_name)
@@ -121,7 +124,8 @@ def main(args):
             state_dict = {
                 'step': step_idx,
                 'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
+                'critic_optimizer': critic_optimizer.state_dict(),
+                'actor_optimizer': actor_optimizer.state_dict(),
                 'best_test_episode_reward': best_test_episode_reward,
             }
             torch.save(state_dict, file_name)
