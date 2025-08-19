@@ -69,7 +69,7 @@ def main(args):
     best_test_episode_reward = -np.inf
 
     if args.resume_path is not None:
-        state_dict = torch.load(args.resume_path, map_location=device)
+        state_dict = torch.load(args.resume_path, map_location=device, weights_only=False)
         model.load_state_dict(state_dict['model'])
         critic_optimizer.load_state_dict(state_dict['critic_optimizer'])
         actor_optimizer.load_state_dict(state_dict['actor_optimizer'])
