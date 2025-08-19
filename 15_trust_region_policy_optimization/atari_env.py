@@ -32,16 +32,8 @@ class AtariWrapper(gym.Wrapper):
 
 def make_atari_env(env_name):
     env = gym.make(env_name)
-    
-    # env should be `<TimeLimit<OrderEnforcing<PassiveEnvChecker<MinitaurBulletEnv<MinitaurBulletEnv-v0>>>>>`
-    # we need to extract the core env object otherwise the returned value of `env.step()` would not be 
-    while True:
-        if 'env' not in dir(env):
-            break
-        env = env.env
 
-    # env: <pybullet_envs.bullet.minitaur_gym_env.MinitaurBulletEnv object at 0x1412b4bb0>
-    # The env `MinitaurBulletEnv-v0` which provided by `pybullet_envs` outputs a `obs` which is in the type of `np.float32`
+    # The env outputs an `obs` which is in the type of `np.float32`
     # We need to cast `obs` into `np.float32`
     env = AtariWrapper(env)
 

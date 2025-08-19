@@ -1,3 +1,4 @@
+from math import isnan
 import numpy as np
 
 import torch
@@ -53,6 +54,8 @@ class Actor(nn.Module):
             sigma = np.exp(logstd)
 
         actions = mu + sigma * np.random.normal(size=mu.shape)
+        if np.isnan(actions).any():
+            breakpoint()
         actions = np.clip(actions, -1, 1)
 
         return actions
@@ -75,18 +78,21 @@ class Critic(nn.Module):
         return self.value(obs)
 
 
-def cal_log_policy(mu_tensor, var_tensor, action_tensor):
+def cal_log_policy(mu_tensor, logstd_tensor, action_tensor):
     # mu_tensor: (bs, 8)
     # var_tensor: (bs, 8)
     # action_tensor: (bs, 8)
     
-    res = - (action_tensor - mu_tensor)**2 / (2 * var_tensor.clamp(min=1e-3))
-    res -= 0.5 * torch.log(2 * torch.pi * var_tensor)
+    vars = torch.exp(logstd_tensor)
+
+    res = - (action_tensor - mu_tensor)**2 / (2 * vars.clamp(min=1e-3))
+    res -= 0.5 * torch.log(2 * torch.pi * vars)
     return res
 
 
-def cal_entropy(var_tensor):
-    return 0.5 + 0.5 * torch.log(2 * torch.pi * var_tensor).mean()
+def cal_entropy(logstd_tensor):
+    vars = torch.exp(logstd_tensor)
+    return 0.5 + 0.5 * torch.log(2 * torch.pi * vars).mean()
 
 
 def train_a2c(model, obs_history, value_history, action_history, critic_optimizer, actor_optimizer, writer, step_idx, args, device):
@@ -106,7 +112,7 @@ def train_a2c(model, obs_history, value_history, action_history, critic_optimize
     log_pred_action_prob = adv_values * cal_log_policy(mus, model.actor.logstd, action_history)  # (32, 8)
     loss_policy = - log_pred_action_prob.mean()
     
-    loss_entropy = - cal_entropy(torch.exp(model.actor.logstd))
+    loss_entropy = - cal_entropy(model.actor.logstd)
 
     loss_actor = loss_policy + args.loss_entropy_coef * loss_entropy
     loss_actor.backward()
