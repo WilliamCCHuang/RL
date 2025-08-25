@@ -6,38 +6,8 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from atari_env import make_atari_env
-from a2c import A2C, train_a2c, test_a2c
+from a2c import A2C, train_ppo, test_a2c
 from experience import NStepExperienceMemory
-
-
-def pack_exp_into_batch(exp_batch, model, last_gamma, device):
-    obs_history = []
-    value_history = []
-    action_history = []
-    not_done_idx = []
-    last_obs = []
-    for idx, exp in enumerate(exp_batch):
-        obs_history.append(exp.obs)
-        value_history.append(exp.dis_reward)
-        action_history.append(exp.action)
-
-        # this exp is not done yet
-        if exp.last_obs is not None:
-            not_done_idx.append(idx)
-            last_obs.append(exp.last_obs)
-
-    obs_history = torch.tensor(np.array(obs_history)).to(device)
-    action_history = torch.tensor(np.array(action_history)).to(device)
-    value_history = torch.tensor(np.array(value_history)).float().to(device)
-
-    if not not_done_idx:
-        last_obs = torch.tensor(last_obs).to(device)
-
-        with torch.no_grad():
-            last_obs_values = model.predict_values(last_obs)
-        value_history[not_done_idx] += last_gamma * last_obs_values.detach()
-
-    return obs_history, value_history, action_history
 
 
 def main(args):
@@ -91,12 +61,7 @@ def main(args):
         if len(trajectory) < args.trajectory_size:
             continue
         
-        last_gamma = args.discount_rate ** args.reward_steps
-        obs_history, value_history, action_history = pack_exp_into_batch(exp_batch, model, last_gamma, device)
-        exp_batch = []
-
-        train_a2c(model, obs_history, value_history, action_history, critic_optimizer, actor_optimizer, writer, step_idx, args, device)
-
+        train_ppo(trajectory, model, critic_optimizer, actor_optimizer, writer, step_idx, args, device)
         step_idx += 1
 
         # if training is done
@@ -140,10 +105,12 @@ if __name__ == '__main__':
     parser.add_argument('--num-env', type=int, default=16)
     parser.add_argument('--resume-path', type=str, default=None)
     parser.add_argument('--training-steps', type=int, default=1000000)
-    # parser.add_argument('--ppo-steps', type=int, default=1)
-    parser.add_argument('--trajectory-size', type=int, default=2048)
     parser.add_argument('--discount-rate', type=float, default=0.99)
-    parser.add_argument('--bs', type=float, default=32)
+    parser.add_argument('--ppo-trajectory-size', type=int, default=2049)
+    parser.add_argument('--ppo-bs', type=float, default=64)
+    parser.add_argument('--ppo-epochs', type=float, default=10)
+    parser.add_argument('--ppo-gae-lambda', type=float, default=10)
+    parser.add_argument('--ppo-eps', type=float, default=0.2)
     parser.add_argument('--lr-actor', type=float, default=1e-5)
     parser.add_argument('--lr-critic', type=float, default=1e-3)
     parser.add_argument('--loss-entropy-coef', type=float, default=1e-3)

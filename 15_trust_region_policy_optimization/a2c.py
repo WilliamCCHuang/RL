@@ -148,56 +148,96 @@ def test_a2c(model, env, num_rounds=10, device='cpu'):
 
 
 def train_ppo(model, trajectory, critic_optimizer, actor_optimizer, writer, step_idx, args, device):
+    breakpoint()
     states = torch.tensor([e[0].state for e in trajectory]).to(device)
     actions = torch.tensor([e[0].action for e in trajectory]).to(device)
-    # obs_history = obs_history.to(device)  # (bs, 28)
-    # value_history = value_history.unsqueeze(-1).to(device)  # (bs, 1)
-    # action_history = action_history.to(device)  # (bs, 8)
 
-
-    return
-    critic_optimizer.zero_grad()
-    pred_values = model.predict_values(obs_history)  # (bs, 8), (bs, 8), (bs, 1)
-    loss_value = F.mse_loss(pred_values, value_history)
-    loss_value.backward()
-    critic_optimizer.step()
-
-    actor_optimizer.zero_grad()
-    mus = model.actor(obs_history)  # (32, 8)
-    adv_values = value_history - pred_values.detach()  # (32, 1)
-    log_pred_action_prob = adv_values * cal_log_policy(mus, model.actor.logstd, action_history)  # (32, 8)
-    loss_policy = - log_pred_action_prob.mean()
+    # calculate old policy
+    gae_values, tgt_values = cal_gae_and_tgt_values(trajectory, model, args.discount_rate, args.ppo_gae_lambda, device)
+    with torch.no_grad():
+        old_mus = model.actor(states)
+    old_log_policy = cal_log_policy(old_mus, model.actor.logstd, actions)
     
-    loss_entropy = - cal_entropy(model.actor.logstd)
+    # normalize advantage?
 
-    loss_actor = loss_policy + args.loss_entropy_coef * loss_entropy
-    loss_actor.backward()
-    actor_optimizer.step()
+    # drop last entity?
+    trajectory = trajectory[:-1]
+    old_log_policy = old_log_policy[:-1].detach()
 
-    writer.add_scalar('loss_value', loss_value, step_idx)
-    writer.add_scalar('loss_policy', loss_policy, step_idx)
-    writer.add_scalar('loss_entropy', loss_entropy, step_idx)
-    writer.add_scalar('loss_actor', loss_actor, step_idx)
+    steps = 0
+    mean_loss_value = 0
+    mean_loss_policy = 0
+    for _ in range(args.ppo_epochs):
+        for start_idx in range(0, len(trajectory), args.ppo_bs):
+            end_idx = start_idx + args.bs
+            if end_idx > len(trajectory):
+                end_idx = len(trajectory)
+
+            batch_states = states[start_idx:end_idx]
+            batch_actions = actions[start_idx:end_idx]
+            batch_gae_values = gae_values[start_idx:end_idx]
+            batch_tgt_values = tgt_values[start_idx:end_idx]
+            batch_old_log_policy = old_log_policy[start_idx:end_idx]
+
+            # train critic
+            critic_optimizer.zero_grad()
+            pred_values = model.predict_values(batch_states)
+            loss_value = F.mse_loss(pred_values, batch_tgt_values)
+            loss_value.backward()
+            critic_optimizer.step()
+
+            # train actor
+            actor_optimizer.zero_grad()
+            mus = model.actor(batch_states)
+            batch_log_policy = cal_log_policy(mus, model.actor.logstd, batch_actions)
+            
+            ratio = torch.exp(batch_log_policy - batch_old_log_policy)
+            clipped_ratio = torch.clamp(ratio, 1 - args.ppo_eps, 1 + args.ppo_eps)
+            
+            surr_obj = ratio * batch_gae_values
+            clipped_surr_obj = clipped_ratio * batch_gae_values
+            loss_policy = - torch.min(surr_obj, clipped_surr_obj).mean()
+            loss_policy.backward()
+            actor_optimizer.step()
+
+            mean_loss_value += loss_value.item()
+            mean_loss_policy += loss_policy.item()
+            steps += 1
+
+    mean_loss_value /= steps
+    mean_loss_policy /= steps
+
+    writer.add_scalar('loss_value', mean_loss_value, step_idx)
+    writer.add_scalar('loss_policy', mean_loss_policy, step_idx)
 
 
-def cal_gae(trajectory, model, gamma, gae_lambda, device):
+def cal_gae_and_tgt_values(trajectory, model, gamma, gae_lambda, device):
     states = torch.tensor([e[0].state for e in trajectory]).to(device)
 
     with torch.no_grad():
         values = model.predict_values(states)
     values = values.detach().cpu().numpy()
     
+    tgt_values = []
     gae_values = []
-    for (exp,), value, next_value in zip(reversed(trajectory[:-1]), reversed(values[:-1]), reversed(values[1:])):
+    for exp, value, next_value in zip(reversed(trajectory[:-1]), reversed(values[:-1]), reversed(values[1:])):
+        assert len(exp) == 1, f'Need to be 1-step experience but got {len(exp)}'
+        exp = exp[0]
+
         if exp.done:
+            tgt_value = exp.reward
+
             delta = exp.reward - value
             gae_value = delta
         else:
+            tgt_value = exp.reward + gamma * tgt_value
+
             delta = exp.reward + gamma * next_value - value
             gae_value = delta + gamma * gae_lambda * gae_value
         
+        tgt_values.append(tgt_value)
         gae_values.append(gae_value)
     
-    gae_values.reverse()
-    gae_tensor = torch.tensor(gae_values).to(device)
-    return gae_tensor
+    tgt_values = torch.tensor(reversed(tgt_values)).to(device)
+    gae_values = torch.tensor(reversed(gae_values)).to(device)
+    return gae_values, tgt_values
