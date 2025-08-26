@@ -148,19 +148,16 @@ def test_a2c(model, env, num_rounds=10, device='cpu'):
 
 
 def train_ppo(model, trajectory, critic_optimizer, actor_optimizer, writer, step_idx, args, device):
-    breakpoint()
-    states = torch.tensor([e[0].state for e in trajectory]).to(device)
-    actions = torch.tensor([e[0].action for e in trajectory]).to(device)
-
     # calculate old policy
-    gae_values, tgt_values = cal_gae_and_tgt_values(trajectory, model, args.discount_rate, args.ppo_gae_lambda, device)
+    gae_values, tgt_values, states, actions = cal_gae_and_tgt_values(trajectory, model, args.discount_rate, args.ppo_gae_lambda, device)
+
     with torch.no_grad():
         old_mus = model.actor(states)
     old_log_policy = cal_log_policy(old_mus, model.actor.logstd, actions)
-    
-    # normalize advantage?
 
-    # drop last entity?
+    if args.ppo_normalize_gae:
+        gae_values = (gae_values - gae_values.mean()) / (gae_values.std() + 1e-8)
+
     trajectory = trajectory[:-1]
     old_log_policy = old_log_policy[:-1].detach()
 
@@ -169,14 +166,14 @@ def train_ppo(model, trajectory, critic_optimizer, actor_optimizer, writer, step
     mean_loss_policy = 0
     for _ in range(args.ppo_epochs):
         for start_idx in range(0, len(trajectory), args.ppo_bs):
-            end_idx = start_idx + args.bs
+            end_idx = start_idx + args.ppo_bs
             if end_idx > len(trajectory):
                 end_idx = len(trajectory)
 
             batch_states = states[start_idx:end_idx]
             batch_actions = actions[start_idx:end_idx]
-            batch_gae_values = gae_values[start_idx:end_idx]
-            batch_tgt_values = tgt_values[start_idx:end_idx]
+            batch_gae_values = gae_values[start_idx:end_idx].unsqueeze(-1)
+            batch_tgt_values = tgt_values[start_idx:end_idx].unsqueeze(-1)
             batch_old_log_policy = old_log_policy[start_idx:end_idx]
 
             # train critic
@@ -212,14 +209,15 @@ def train_ppo(model, trajectory, critic_optimizer, actor_optimizer, writer, step
 
 
 def cal_gae_and_tgt_values(trajectory, model, gamma, gae_lambda, device):
-    states = torch.tensor([e[0].state for e in trajectory]).to(device)
+    states = torch.tensor([e[0].obs for e in trajectory]).to(device)  # (trajectory length, 17)
+    actions = torch.tensor([e[0].action for e in trajectory]).to(device)  # (trajectory length, 6)
 
     with torch.no_grad():
         values = model.predict_values(states)
-    values = values.detach().cpu().numpy()
+    values = values.detach().cpu().numpy()  # (trajectory length, 1)
     
-    tgt_values = []
-    gae_values = []
+    tgt_value, tgt_values = 0, []
+    gae_value, gae_values = 0, []
     for exp, value, next_value in zip(reversed(trajectory[:-1]), reversed(values[:-1]), reversed(values[1:])):
         assert len(exp) == 1, f'Need to be 1-step experience but got {len(exp)}'
         exp = exp[0]
@@ -227,17 +225,21 @@ def cal_gae_and_tgt_values(trajectory, model, gamma, gae_lambda, device):
         if exp.done:
             tgt_value = exp.reward
 
-            delta = exp.reward - value
+            delta = exp.reward - value.item()
             gae_value = delta
         else:
-            tgt_value = exp.reward + gamma * tgt_value
+            tgt_value = exp.reward + gamma * next_value.item()
 
-            delta = exp.reward + gamma * next_value - value
+            delta = exp.reward + gamma * next_value.item() - value.item()
             gae_value = delta + gamma * gae_lambda * gae_value
         
         tgt_values.append(tgt_value)
         gae_values.append(gae_value)
-    
-    tgt_values = torch.tensor(reversed(tgt_values)).to(device)
-    gae_values = torch.tensor(reversed(gae_values)).to(device)
-    return gae_values, tgt_values
+
+    tgt_values.reverse()
+    gae_values.reverse()
+
+    tgt_values = torch.tensor(tgt_values).float().to(device)
+    gae_values = torch.tensor(gae_values).float().to(device)
+
+    return gae_values, tgt_values, states, actions

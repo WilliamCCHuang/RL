@@ -56,12 +56,12 @@ def main(args):
             writer.add_scalar('episode/reward', rewards[0], step_idx)
             writer.add_scalar('episode/steps', steps[0], step_idx)
         
-        # collect exps until they are enough to pack a batch
+        # collect exps until they are enough
         trajectory.append(exps)
-        if len(trajectory) < args.trajectory_size:
+        if len(trajectory) < args.ppo_trajectory_size:
             continue
         
-        train_ppo(trajectory, model, critic_optimizer, actor_optimizer, writer, step_idx, args, device)
+        train_ppo(model, trajectory, critic_optimizer, actor_optimizer, writer, step_idx, args, device)
         step_idx += 1
 
         # if training is done
@@ -75,7 +75,7 @@ def main(args):
             if best_test_episode_reward < test_avg_reward:
                 best_test_episode_reward = test_avg_reward
 
-                file_name = exp_dir / f'best_a2c_{step_idx}_{best_test_episode_reward:.2f}.pt'
+                file_name = exp_dir / f'best_ppo_{step_idx}_{best_test_episode_reward:.2f}.pt'
                 state_dict = {
                     'step': step_idx,
                     'model': model.state_dict(),
@@ -85,7 +85,7 @@ def main(args):
                 }
                 torch.save(state_dict, file_name)
 
-            file_name = exp_dir / f'latest_a2c.pt'
+            file_name = exp_dir / f'latest_ppo.pt'
             state_dict = {
                 'step': step_idx,
                 'model': model.state_dict(),
@@ -100,7 +100,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', type=str, default='cuda:0')
-    parser.add_argument('--exp-name', type=str, default='exp_a2c')
+    parser.add_argument('--exp-name', type=str, default='exp_ppo')
     parser.add_argument('--env-name', type=str, default='HalfCheetah-v4')
     parser.add_argument('--num-env', type=int, default=16)
     parser.add_argument('--resume-path', type=str, default=None)
@@ -109,7 +109,8 @@ if __name__ == '__main__':
     parser.add_argument('--ppo-trajectory-size', type=int, default=2049)
     parser.add_argument('--ppo-bs', type=float, default=64)
     parser.add_argument('--ppo-epochs', type=float, default=10)
-    parser.add_argument('--ppo-gae-lambda', type=float, default=10)
+    parser.add_argument('--ppo-gae-lambda', type=float, default=0.95)
+    parser.add_argument('--ppo-normalize_gae', action='store_true')
     parser.add_argument('--ppo-eps', type=float, default=0.2)
     parser.add_argument('--lr-actor', type=float, default=1e-5)
     parser.add_argument('--lr-critic', type=float, default=1e-3)
