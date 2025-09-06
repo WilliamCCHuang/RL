@@ -115,6 +115,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr-actor', type=float, default=1e-4)
     parser.add_argument('--lr-critic', type=float, default=1e-3)
     parser.add_argument('--loss-entropy-coef', type=float, default=1e-3)
+    parser.add_argument('--gradient-clip-norm', type=float, default=1.0)
     parser.add_argument('--test-steps', type=int, default=1000)
     parser.add_argument('--seed', type=int, default=20)
     args = parser.parse_args()

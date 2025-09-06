@@ -181,6 +181,7 @@ def train_ppo(model, trajectory, critic_optimizer, actor_optimizer, writer, step
             pred_values = model.predict_values(batch_states)
             loss_value = F.mse_loss(pred_values, batch_tgt_values)
             loss_value.backward()
+            nn.utils.clip_grad_norm_(model.critic.parameters(), args.gradient_clip_norm)
             critic_optimizer.step()
 
             # train actor
@@ -195,6 +196,7 @@ def train_ppo(model, trajectory, critic_optimizer, actor_optimizer, writer, step
             clipped_surr_obj = clipped_ratio * batch_gae_values
             loss_policy = - torch.min(surr_obj, clipped_surr_obj).mean()
             loss_policy.backward()
+            nn.utils.clip_grad_norm_(model.actor.parameters(), args.gradient_clip_norm)
             actor_optimizer.step()
 
             mean_loss_value += loss_value.item()
