@@ -147,13 +147,21 @@ def test_a2c(model, env, num_rounds=10, device='cpu'):
     return rewards / num_rounds, steps / num_rounds
 
 
-def train_ppo(model, trajectory, critic_optimizer, actor_optimizer, writer, step_idx, args, device):
+def train_ppo(model, trajectory, optimizer, writer, step_idx, args, device):
     # calculate old policy
     gae_values, tgt_values, states, actions = cal_gae_and_tgt_values(trajectory, model, args.discount_rate, args.ppo_gae_lambda, device)
+
+    if torch.isna(gae_values).any():
+        breakpoint()
+    if torch.isna(tgt_values).any():
+        breakpoint()
 
     with torch.no_grad():
         old_mus = model.actor(states)
     old_log_policy = cal_log_policy(old_mus, model.actor.logstd, actions)
+
+    if torch.isna(old_log_policy).any():
+        breakpoint()
 
     if args.ppo_normalize_gae:
         gae_values = (gae_values - gae_values.mean()) / (gae_values.std() + 1e-8)
@@ -176,18 +184,20 @@ def train_ppo(model, trajectory, critic_optimizer, actor_optimizer, writer, step
             batch_tgt_values = tgt_values[start_idx:end_idx].unsqueeze(-1)
             batch_old_log_policy = old_log_policy[start_idx:end_idx]
 
+            optimizer.zero_grad()
+
             # train critic
-            critic_optimizer.zero_grad()
             pred_values = model.predict_values(batch_states)
             loss_value = F.mse_loss(pred_values, batch_tgt_values)
+            if torch.isna(loss_value):
+                breakpoint()
             loss_value.backward()
-            nn.utils.clip_grad_norm_(model.critic.parameters(), args.gradient_clip_norm)
-            critic_optimizer.step()
 
             # train actor
-            actor_optimizer.zero_grad()
             mus = model.actor(batch_states)
             batch_log_policy = cal_log_policy(mus, model.actor.logstd, batch_actions)
+            if torch.isna(batch_log_policy).any():
+                breakpoint()
             
             ratio = torch.exp(batch_log_policy - batch_old_log_policy)
             clipped_ratio = torch.clamp(ratio, 1 - args.ppo_eps, 1 + args.ppo_eps)
@@ -195,10 +205,13 @@ def train_ppo(model, trajectory, critic_optimizer, actor_optimizer, writer, step
             surr_obj = ratio * batch_gae_values
             clipped_surr_obj = clipped_ratio * batch_gae_values
             loss_policy = - torch.min(surr_obj, clipped_surr_obj).mean()
+            if torch.isna(loss_policy):
+                breakpoint()
             loss_policy.backward()
-            nn.utils.clip_grad_norm_(model.actor.parameters(), args.gradient_clip_norm)
-            actor_optimizer.step()
-
+            
+            nn.utils.clip_grad_norm_(model.critic.parameters(), args.gradient_clip_norm)  # sometimes the loss would blow up
+            optimizer.step()
+            
             mean_loss_value += loss_value.item()
             mean_loss_policy += loss_policy.item()
             steps += 1

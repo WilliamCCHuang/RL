@@ -27,8 +27,7 @@ def main(args):
     test_env = make_atari_env(args.env_name)
 
     model = A2C(env.observation_space.shape[0], env.action_space.shape[0]).to(device)
-    critic_optimizer = torch.optim.Adam(model.critic.parameters(), args.lr_critic)
-    actor_optimizer = torch.optim.Adam(model.actor.parameters(), args.lr_actor)
+    optimizer = torch.optim.Adam(model.parameters(), args.lr)
     print(model)
 
     exp_memory = NStepExperienceMemory(env, model, n_steps=1)
@@ -41,8 +40,7 @@ def main(args):
     if args.resume_path is not None:
         state_dict = torch.load(args.resume_path, map_location=device, weights_only=False)
         model.load_state_dict(state_dict['model'])
-        critic_optimizer.load_state_dict(state_dict['critic_optimizer'])
-        actor_optimizer.load_state_dict(state_dict['actor_optimizer'])
+        optimizer.load_state_dict(state_dict['optimizer'])
         step_idx = state_dict['step']
         best_test_episode_reward = state_dict['best_test_episode_reward']
         print(f'Loaded resume. Continue training from the step {step_idx}. Best test episode reward: {best_test_episode_reward:.2f}')
@@ -61,7 +59,7 @@ def main(args):
         if len(trajectory) < args.ppo_trajectory_size:
             continue
         
-        train_ppo(model, trajectory, critic_optimizer, actor_optimizer, writer, step_idx, args, device)
+        train_ppo(model, trajectory, optimizer, writer, step_idx, args, device)
         step_idx += 1
 
         # if training is done
@@ -79,8 +77,7 @@ def main(args):
                 state_dict = {
                     'step': step_idx,
                     'model': model.state_dict(),
-                    'critic_optimizer': critic_optimizer.state_dict(),
-                    'actor_optimizer': actor_optimizer.state_dict(),
+                    'optimizer': optimizer.state_dict(),
                     'best_test_episode_reward': best_test_episode_reward,
                 }
                 torch.save(state_dict, file_name)
@@ -89,8 +86,7 @@ def main(args):
             state_dict = {
                 'step': step_idx,
                 'model': model.state_dict(),
-                'critic_optimizer': critic_optimizer.state_dict(),
-                'actor_optimizer': actor_optimizer.state_dict(),
+                'optimizer': optimizer.state_dict(),
                 'best_test_episode_reward': best_test_episode_reward,
             }
             torch.save(state_dict, file_name)
@@ -102,7 +98,6 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--exp-name', type=str, default='exp_ppo')
     parser.add_argument('--env-name', type=str, default='HalfCheetah-v4')
-    parser.add_argument('--num-env', type=int, default=16)
     parser.add_argument('--resume-path', type=str, default=None)
     parser.add_argument('--training-steps', type=int, default=1000000)
     parser.add_argument('--discount-rate', type=float, default=0.99)
@@ -112,8 +107,7 @@ if __name__ == '__main__':
     parser.add_argument('--ppo-gae-lambda', type=float, default=0.95)
     parser.add_argument('--ppo-normalize-gae', action='store_true')
     parser.add_argument('--ppo-eps', type=float, default=0.2)
-    parser.add_argument('--lr-actor', type=float, default=1e-4)
-    parser.add_argument('--lr-critic', type=float, default=1e-3)
+    parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--loss-entropy-coef', type=float, default=1e-3)
     parser.add_argument('--gradient-clip-norm', type=float, default=1.0)
     parser.add_argument('--test-steps', type=int, default=1000)
