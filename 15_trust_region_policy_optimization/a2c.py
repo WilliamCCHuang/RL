@@ -191,7 +191,6 @@ def train_ppo(model, trajectory, optimizer, writer, step_idx, args, device):
             loss_value = F.mse_loss(pred_values, batch_tgt_values)
             if torch.isna(loss_value):
                 breakpoint()
-            loss_value.backward()
 
             # train actor
             mus = model.actor(batch_states)
@@ -207,9 +206,11 @@ def train_ppo(model, trajectory, optimizer, writer, step_idx, args, device):
             loss_policy = - torch.min(surr_obj, clipped_surr_obj).mean()
             if torch.isna(loss_policy):
                 breakpoint()
-            loss_policy.backward()
             
-            nn.utils.clip_grad_norm_(model.critic.parameters(), args.gradient_clip_norm)  # sometimes the loss would blow up
+            loss = loss_value + loss_policy
+            loss.backward()
+            
+            nn.utils.clip_grad_norm_(model.parameters(), args.gradient_clip_norm)  # sometimes the loss would blow up
             optimizer.step()
             
             mean_loss_value += loss_value.item()
