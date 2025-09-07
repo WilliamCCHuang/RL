@@ -103,7 +103,7 @@ if __name__ == '__main__':
     parser.add_argument('--discount-rate', type=float, default=0.99)
     parser.add_argument('--ppo-trajectory-size', type=int, default=2049)
     parser.add_argument('--ppo-bs', type=int, default=64)
-    parser.add_argument('--ppo-epochs', type=float, default=10)
+    parser.add_argument('--ppo-epochs', type=int, default=10)
     parser.add_argument('--ppo-gae-lambda', type=float, default=0.95)
     parser.add_argument('--ppo-normalize-gae', action='store_true')
     parser.add_argument('--ppo-eps', type=float, default=0.2)

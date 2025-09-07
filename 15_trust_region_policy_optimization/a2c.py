@@ -83,10 +83,11 @@ def cal_log_policy(mu_tensor, logstd_tensor, action_tensor):
     # var_tensor: (bs, 8)
     # action_tensor: (bs, 8)
     
+    # FIXME:
     vars = torch.exp(logstd_tensor)
 
     res = - (action_tensor - mu_tensor)**2 / (2 * vars.clamp(min=1e-3))
-    res -= 0.5 * torch.log(2 * torch.pi * vars)
+    res -= 0.5 * (logstd_tensor + torch.log(2 * torch.pi))
     return res
 
 
@@ -159,8 +160,9 @@ def train_ppo(model, trajectory, optimizer, writer, step_idx, args, device):
     with torch.no_grad():
         old_mus = model.actor(states)
     old_log_policy = cal_log_policy(old_mus, model.actor.logstd, actions)
-
-    if torch.isna(old_log_policy).any():
+    if old_log_policy < -20:
+        # FIXME:
+        print('Loss policy would explode as `old_log_policy` is too negative large')
         breakpoint()
 
     if args.ppo_normalize_gae:
@@ -189,14 +191,10 @@ def train_ppo(model, trajectory, optimizer, writer, step_idx, args, device):
             # train critic
             pred_values = model.predict_values(batch_states)
             loss_value = F.mse_loss(pred_values, batch_tgt_values)
-            if torch.isna(loss_value):
-                breakpoint()
 
             # train actor
             mus = model.actor(batch_states)
             batch_log_policy = cal_log_policy(mus, model.actor.logstd, batch_actions)
-            if torch.isna(batch_log_policy).any():
-                breakpoint()
             
             ratio = torch.exp(batch_log_policy - batch_old_log_policy)
             clipped_ratio = torch.clamp(ratio, 1 - args.ppo_eps, 1 + args.ppo_eps)
@@ -204,14 +202,14 @@ def train_ppo(model, trajectory, optimizer, writer, step_idx, args, device):
             surr_obj = ratio * batch_gae_values
             clipped_surr_obj = clipped_ratio * batch_gae_values
             loss_policy = - torch.min(surr_obj, clipped_surr_obj).mean()
-            if torch.isna(loss_policy):
-                breakpoint()
             
             loss = loss_value + loss_policy
             loss.backward()
             
-            nn.utils.clip_grad_norm_(model.parameters(), args.gradient_clip_norm)  # sometimes the loss would blow up
+            # nn.utils.clip_grad_norm_(model.parameters(), args.gradient_clip_norm)  # sometimes the loss would blow up
             optimizer.step()
+
+            # model.actor.logstd.data.clamp_(min=-1)  # FIXME: <---
             
             mean_loss_value += loss_value.item()
             mean_loss_policy += loss_policy.item()
