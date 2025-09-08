@@ -87,7 +87,7 @@ def cal_log_policy(mu_tensor, logstd_tensor, action_tensor):
     vars = torch.exp(logstd_tensor)
 
     res = - (action_tensor - mu_tensor)**2 / (2 * vars.clamp(min=1e-3))
-    res -= 0.5 * (logstd_tensor + torch.log(2 * torch.pi))
+    res -= 0.5 * (logstd_tensor + np.log(2 * np.pi))
     return res
 
 
@@ -152,15 +152,10 @@ def train_ppo(model, trajectory, optimizer, writer, step_idx, args, device):
     # calculate old policy
     gae_values, tgt_values, states, actions = cal_gae_and_tgt_values(trajectory, model, args.discount_rate, args.ppo_gae_lambda, device)
 
-    if torch.isna(gae_values).any():
-        breakpoint()
-    if torch.isna(tgt_values).any():
-        breakpoint()
-
     with torch.no_grad():
         old_mus = model.actor(states)
     old_log_policy = cal_log_policy(old_mus, model.actor.logstd, actions)
-    if old_log_policy < -20:
+    if (old_log_policy < -20).any():
         # FIXME:
         print('Loss policy would explode as `old_log_policy` is too negative large')
         breakpoint()
@@ -209,7 +204,7 @@ def train_ppo(model, trajectory, optimizer, writer, step_idx, args, device):
             # nn.utils.clip_grad_norm_(model.parameters(), args.gradient_clip_norm)  # sometimes the loss would blow up
             optimizer.step()
 
-            # model.actor.logstd.data.clamp_(min=-1)  # FIXME: <---
+            model.actor.logstd.data.clamp_(min=-1)  # FIXME: <---
             
             mean_loss_value += loss_value.item()
             mean_loss_policy += loss_policy.item()
