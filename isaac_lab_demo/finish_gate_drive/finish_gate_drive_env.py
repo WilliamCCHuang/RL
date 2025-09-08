@@ -12,7 +12,7 @@ from isaaclab.utils import configclass
 from isaaclab.markers import VisualizationMarkers  # FIXME
 
 from .leatherback_cfg import LEATHERBACK_CFG
-from .finish_gate_cfg import FINISH_GATE_CFG
+from .gate_cfg import FINISH_GATE_CFG, NO_PASS_GATE_CFG
 
 
 @configclass
@@ -29,6 +29,7 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     
     car_cfg: ArticulationCfg = LEATHERBACK_CFG.replace(prim_path="/World/envs/env_.*/car")
     finish_gate_cfg = FINISH_GATE_CFG
+    no_pass_gate_cfg = NO_PASS_GATE_CFG
 
     throttle_dof_name = [
         "Wheel__Knuckle__Front_Left",
@@ -87,7 +88,16 @@ class LeatherbackEnv(DirectRLEnv):
 
         # Setup rest of the scene
         self.car = Articulation(self.cfg.car_cfg)
-        self.finish_gates = VisualizationMarkers(self.cfg.finish_gate_cfg)
+        self.finish_gate = self.cfg.finish_gate_cfg.func(
+            '/World/Visual/FinishGate',
+            self.cfg.finish_gate_cfg,
+            translation=(0.0, 2.0, 0.0)
+        )
+        self.no_pass_gate = self.cfg.no_pass_gate_cfg.func(
+            '/World/Visual/NoPassGate',
+            self.cfg.no_pass_gate_cfg,
+            translation=(0.0, -2.0, 0.0),
+        )
         self.object_state = []
         
         self.scene.clone_environments(copy_from_source=False)
