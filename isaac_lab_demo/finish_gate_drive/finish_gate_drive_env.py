@@ -9,25 +9,24 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from isaaclab.utils import configclass
-from isaaclab.markers import VisualizationMarkers  # FIXME
+from .waypoint import WAYPOINT_CFG
+from isaaclab_assets.robots.leatherback import LEATHERBACK_CFG
+from isaaclab.markers import VisualizationMarkers
 
-from .leatherback_cfg import LEATHERBACK_CFG
 from .gate_cfg import FINISH_GATE_CFG, NO_PASS_GATE_CFG
 
+from pxr import Gf
 
 @configclass
-class FinishGateDriveEnvCfg(DirectRLEnvCfg):
+class LeatherbackEnvCfg(DirectRLEnvCfg):
     decimation = 4
     episode_length_s = 20.0
     action_space = 2
     observation_space = 8
     state_space = 0
-
-    env_spacing = 32.0
     sim: SimulationCfg = SimulationCfg(dt=1 / 60, render_interval=decimation)
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=env_spacing, replicate_physics=True)
-    
-    car_cfg: ArticulationCfg = LEATHERBACK_CFG.replace(prim_path="/World/envs/env_.*/car")
+    robot_cfg: ArticulationCfg = LEATHERBACK_CFG.replace(prim_path="/World/envs/env_.*/Robot")
+    waypoint_cfg = WAYPOINT_CFG
     finish_gate_cfg = FINISH_GATE_CFG
     no_pass_gate_cfg = NO_PASS_GATE_CFG
 
@@ -42,14 +41,18 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
         "Knuckle__Upright__Front_Left",
     ]
 
+    env_spacing = 32.0
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=env_spacing, replicate_physics=True)
+
+    num_goals = 10
 
 class LeatherbackEnv(DirectRLEnv):
-    cfg: FinishGateDriveEnvCfg
+    cfg: LeatherbackEnvCfg
 
-    def __init__(self, cfg: FinishGateDriveEnvCfg, render_mode: str | None = None, **kwargs):
+    def __init__(self, cfg: LeatherbackEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
-        self._throttle_dof_idx, _ = self.car.find_joints(self.cfg.throttle_dof_name)
-        self._steering_dof_idx, _ = self.car.find_joints(self.cfg.steering_dof_name)
+        self._throttle_dof_idx, _ = self.leatherback.find_joints(self.cfg.throttle_dof_name)
+        self._steering_dof_idx, _ = self.leatherback.find_joints(self.cfg.steering_dof_name)
         self._throttle_state = torch.zeros((self.num_envs,4), device=self.device, dtype=torch.float32)
         self._steering_state = torch.zeros((self.num_envs,2), device=self.device, dtype=torch.float32)
         self._goal_reached = torch.zeros((self.num_envs), device=self.device, dtype=torch.int32)
@@ -68,10 +71,11 @@ class LeatherbackEnv(DirectRLEnv):
         self._target_index = torch.zeros((self.num_envs), device=self.device, dtype=torch.int32)
 
     def _setup_scene(self):
+        # Create a large ground plane without grid
         spawn_ground_plane(
             prim_path="/World/ground",
             cfg=GroundPlaneCfg(
-                size=(500.0, 500.0),  # Much larger ground plane (500m x 500m)
+                size=(5.0, 5.0),  # Much larger ground plane (500m x 500m)
                 color=(0.2, 0.2, 0.2),  # Dark gray color
                 physics_material=sim_utils.RigidBodyMaterialCfg(
                     friction_combine_mode="multiply",
@@ -83,26 +87,31 @@ class LeatherbackEnv(DirectRLEnv):
             ),
         )
 
-        light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
-        light_cfg.func("/World/Light", light_cfg)
-
         # Setup rest of the scene
-        self.car = Articulation(self.cfg.car_cfg)
-        self.finish_gate = self.cfg.finish_gate_cfg.func(
-            '/World/Visual/FinishGate',
-            self.cfg.finish_gate_cfg,
-            translation=(0.0, 2.0, 0.0)
-        )
-        self.no_pass_gate = self.cfg.no_pass_gate_cfg.func(
-            '/World/Visual/NoPassGate',
-            self.cfg.no_pass_gate_cfg,
-            translation=(0.0, -2.0, 0.0),
-        )
+        self.leatherback = Articulation(self.cfg.robot_cfg)
+        self.finish_gates = []
+        for i in range(self.cfg.num_goals):
+            finish_gate = self.cfg.finish_gate_cfg.func(
+                f'/World/Visuals/FinishGate_{i}',
+                self.cfg.finish_gate_cfg,
+                translation=(0.0, 0.0, 0.0)
+            )
+            self.finish_gates.append(finish_gate)
+
+        # self.no_pass_gate = Articulation(self.cfg.no_pass_gate_cfg)
+        
+        self.waypoints = VisualizationMarkers(self.cfg.waypoint_cfg)
         self.object_state = []
         
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions(global_prim_paths=[])
-        self.scene.articulations["car"] = self.car
+        self.scene.articulations["leatherback"] = self.leatherback
+        # self.scene.articulations["finish_gate"] = self.finish_gate
+        # self.scene.articulations["no_pass_gate"] = self.no_pass_gate
+
+        # Add lighting
+        light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
+        light_cfg.func("/World/Light", light_cfg)
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         throttle_scale = 10
@@ -119,19 +128,19 @@ class LeatherbackEnv(DirectRLEnv):
         self._steering_state = self._steering_action
 
     def _apply_action(self) -> None:
-        self.car.set_joint_velocity_target(self._throttle_action, joint_ids=self._throttle_dof_idx)
-        self.car.set_joint_position_target(self._steering_state, joint_ids=self._steering_dof_idx)
+        self.leatherback.set_joint_velocity_target(self._throttle_action, joint_ids=self._throttle_dof_idx)
+        self.leatherback.set_joint_position_target(self._steering_state, joint_ids=self._steering_dof_idx)
 
     def _get_observations(self) -> dict:
-        current_target_positions = self._target_positions[self.car._ALL_INDICES, self._target_index]
-        self._position_error_vector = current_target_positions - self.car.data.root_pos_w[:, :2]
+        current_target_positions = self._target_positions[self.leatherback._ALL_INDICES, self._target_index]
+        self._position_error_vector = current_target_positions - self.leatherback.data.root_pos_w[:, :2]
         self._previous_position_error = self._position_error.clone()
         self._position_error = torch.norm(self._position_error_vector, dim=-1)
 
-        heading = self.car.data.heading_w
+        heading = self.leatherback.data.heading_w
         target_heading_w = torch.atan2(
-            self._target_positions[self.car._ALL_INDICES, self._target_index, 1] - self.car.data.root_link_pos_w[:, 1],
-            self._target_positions[self.car._ALL_INDICES, self._target_index, 0] - self.car.data.root_link_pos_w[:, 0],
+            self._target_positions[self.leatherback._ALL_INDICES, self._target_index, 1] - self.leatherback.data.root_link_pos_w[:, 1],
+            self._target_positions[self.leatherback._ALL_INDICES, self._target_index, 0] - self.leatherback.data.root_link_pos_w[:, 0],
         )
         self.target_heading_error = torch.atan2(torch.sin(target_heading_w - heading), torch.cos(target_heading_w - heading))
 
@@ -140,9 +149,9 @@ class LeatherbackEnv(DirectRLEnv):
                 self._position_error.unsqueeze(dim=1),
                 torch.cos(self.target_heading_error).unsqueeze(dim=1),
                 torch.sin(self.target_heading_error).unsqueeze(dim=1),
-                self.car.data.root_lin_vel_b[:, 0].unsqueeze(dim=1),
-                self.car.data.root_lin_vel_b[:, 1].unsqueeze(dim=1),
-                self.car.data.root_ang_vel_w[:, 2].unsqueeze(dim=1),
+                self.leatherback.data.root_lin_vel_b[:, 0].unsqueeze(dim=1),
+                self.leatherback.data.root_lin_vel_b[:, 1].unsqueeze(dim=1),
+                self.leatherback.data.root_ang_vel_w[:, 2].unsqueeze(dim=1),
                 self._throttle_state[:, 0].unsqueeze(dim=1),
                 self._steering_state[:, 0].unsqueeze(dim=1),
             ),
@@ -170,7 +179,7 @@ class LeatherbackEnv(DirectRLEnv):
 
         one_hot_encoded = torch.nn.functional.one_hot(self._target_index.long(), num_classes=self._num_goals)
         marker_indices = one_hot_encoded.view(-1).tolist()
-        self.finish_gates.visualize(marker_indices=marker_indices)
+        self.waypoints.visualize(marker_indices=marker_indices)
 
         if torch.any(composite_reward.isnan()):
             raise ValueError("Rewards cannot be NAN")
@@ -183,15 +192,15 @@ class LeatherbackEnv(DirectRLEnv):
 
     def _reset_idx(self, env_ids: Sequence[int] | None):
         if env_ids is None:
-            env_ids = self.car._ALL_INDICES
+            env_ids = self.leatherback._ALL_INDICES
         super()._reset_idx(env_ids)
 
         num_reset = len(env_ids)
-        default_state = self.car.data.default_root_state[env_ids]
+        default_state = self.leatherback.data.default_root_state[env_ids]
         leatherback_pose = default_state[:, :7]
         leatherback_velocities = default_state[:, 7:]
-        joint_positions = self.car.data.default_joint_pos[env_ids]
-        joint_velocities = self.car.data.default_joint_vel[env_ids]
+        joint_positions = self.leatherback.data.default_joint_pos[env_ids]
+        joint_velocities = self.leatherback.data.default_joint_vel[env_ids]
 
         leatherback_pose[:, :3] += self.scene.env_origins[env_ids]
         leatherback_pose[:, 0] -= self.env_spacing / 2
@@ -201,9 +210,9 @@ class LeatherbackEnv(DirectRLEnv):
         leatherback_pose[:, 3] = torch.cos(angles * 0.5)
         leatherback_pose[:, 6] = torch.sin(angles * 0.5)
 
-        self.car.write_root_pose_to_sim(leatherback_pose, env_ids)
-        self.car.write_root_velocity_to_sim(leatherback_velocities, env_ids)
-        self.car.write_joint_state_to_sim(joint_positions, joint_velocities, None, env_ids)
+        self.leatherback.write_root_pose_to_sim(leatherback_pose, env_ids)
+        self.leatherback.write_root_velocity_to_sim(leatherback_velocities, env_ids)
+        self.leatherback.write_joint_state_to_sim(joint_positions, joint_velocities, None, env_ids)
 
         self._target_positions[env_ids, :, :] = 0.0
         self._markers_pos[env_ids, :, :] = 0.0
@@ -217,17 +226,23 @@ class LeatherbackEnv(DirectRLEnv):
         self._target_index[env_ids] = 0
         self._markers_pos[env_ids, :, :2] = self._target_positions[env_ids]
         visualize_pos = self._markers_pos.view(-1, 3)
-        self.finish_gates.visualize(translations=visualize_pos)
-
-        current_target_positions = self._target_positions[self.car._ALL_INDICES, self._target_index]
-        self._position_error_vector = current_target_positions[:, :2] - self.car.data.root_pos_w[:, :2]
+        self.waypoints.visualize(translations=visualize_pos)
+        
+        for i, finish_gate in enumerate(self.finish_gates):
+            pos_attr = finish_gate.GetAttribute("xformOp:translate")
+            print(i)
+            print(pos_attr.Get())
+            breakpoint()
+            
+        current_target_positions = self._target_positions[self.leatherback._ALL_INDICES, self._target_index]
+        self._position_error_vector = current_target_positions[:, :2] - self.leatherback.data.root_pos_w[:, :2]
         self._position_error = torch.norm(self._position_error_vector, dim=-1)
         self._previous_position_error = self._position_error.clone()
 
-        heading = self.car.data.heading_w[:]
+        heading = self.leatherback.data.heading_w[:]
         target_heading_w = torch.atan2( 
-            self._target_positions[:, 0, 1] - self.car.data.root_pos_w[:, 1],
-            self._target_positions[:, 0, 0] - self.car.data.root_pos_w[:, 0],
+            self._target_positions[:, 0, 1] - self.leatherback.data.root_pos_w[:, 1],
+            self._target_positions[:, 0, 0] - self.leatherback.data.root_pos_w[:, 0],
         )
         self._heading_error = torch.atan2(torch.sin(target_heading_w - heading), torch.cos(target_heading_w - heading))
         self._previous_heading_error = self._heading_error.clone()

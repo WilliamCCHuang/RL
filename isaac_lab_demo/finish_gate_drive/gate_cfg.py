@@ -1,6 +1,4 @@
-import os
 import isaaclab.sim as sim_utils
-from isaaclab.markers import VisualizationMarkersCfg
 
 FINISH_GATE_CFG = sim_utils.UsdFileCfg(
     usd_path="/content/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/direct/leatherback/custom_assets/finish_gate.usd",
