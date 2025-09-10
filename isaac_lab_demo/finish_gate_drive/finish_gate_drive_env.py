@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from collections.abc import Sequence
 import isaaclab.sim as sim_utils
-from isaaclab.assets import Articulation, ArticulationCfg
+from isaaclab.assets import Articulation, ArticulationCfg, RigidObject, RigidObjectCfg
 from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
@@ -24,6 +24,7 @@ class LeatherbackEnvCfg(DirectRLEnvCfg):
     action_space = 2
     observation_space = 8
     state_space = 0
+
     sim: SimulationCfg = SimulationCfg(dt=1 / 60, render_interval=decimation)
     robot_cfg: ArticulationCfg = LEATHERBACK_CFG.replace(prim_path="/World/envs/env_.*/Robot")
     waypoint_cfg = WAYPOINT_CFG
@@ -75,7 +76,7 @@ class LeatherbackEnv(DirectRLEnv):
         spawn_ground_plane(
             prim_path="/World/ground",
             cfg=GroundPlaneCfg(
-                size=(5.0, 5.0),  # Much larger ground plane (500m x 500m)
+                size=(500.0, 500.0),  # Much larger ground plane (500m x 500m)
                 color=(0.2, 0.2, 0.2),  # Dark gray color
                 physics_material=sim_utils.RigidBodyMaterialCfg(
                     friction_combine_mode="multiply",
@@ -89,16 +90,19 @@ class LeatherbackEnv(DirectRLEnv):
 
         # Setup rest of the scene
         self.leatherback = Articulation(self.cfg.robot_cfg)
-        self.finish_gates = []
-        for i in range(self.cfg.num_goals):
-            finish_gate = self.cfg.finish_gate_cfg.func(
-                f'/World/Visuals/FinishGate_{i}',
-                self.cfg.finish_gate_cfg,
-                translation=(0.0, 0.0, 0.0)
-            )
-            self.finish_gates.append(finish_gate)
+        # self.finish_gates = []
+        # for i in range(2):
+        #     finish_gate_cfg = self.cfg.finish_gate_cfg.replace(
+        #       prim_path=f"/World/envs/env_.*/FinishGate_{i}",
+        #       init_state=RigidObjectCfg.InitialStateCfg(
+        #         pos=(i / 5, 0.0, 0.0)
+        #       )
+        #     )
+        #     finish_gate = RigidObject(finish_gate_cfg)
+        #     self.finish_gates.append(finish_gate)
 
-        # self.no_pass_gate = Articulation(self.cfg.no_pass_gate_cfg)
+        # self.finish_gate = RigidObject(self.cfg.finish_gate_cfg)
+        self.no_pass_gate = RigidObject(self.cfg.no_pass_gate_cfg)
         
         self.waypoints = VisualizationMarkers(self.cfg.waypoint_cfg)
         self.object_state = []
@@ -106,6 +110,7 @@ class LeatherbackEnv(DirectRLEnv):
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions(global_prim_paths=[])
         self.scene.articulations["leatherback"] = self.leatherback
+        # self.scene.rigid_bodies["no_pass_gate"] = self.no_pass_gate
         # self.scene.articulations["finish_gate"] = self.finish_gate
         # self.scene.articulations["no_pass_gate"] = self.no_pass_gate
 
@@ -228,12 +233,12 @@ class LeatherbackEnv(DirectRLEnv):
         visualize_pos = self._markers_pos.view(-1, 3)
         self.waypoints.visualize(translations=visualize_pos)
         
-        for i, finish_gate in enumerate(self.finish_gates):
-            pos_attr = finish_gate.GetAttribute("xformOp:translate")
-            print(i)
-            print(pos_attr.Get())
-            breakpoint()
-            
+        # self.no_pass_gate.data.default_root_state  # (num_envs, 13)
+        no_pass_gate_default_state = self.no_pass_gate.data.default_root_state[env_ids]
+        no_pass_gate_pos = no_pass_gate_default_state[:, :7]
+        no_pass_gate_pos[:, :2] = self._markers_pos[env_ids, 0, :2]
+        self.no_pass_gate.write_root_pose_to_sim(no_pass_gate_pos, env_ids)
+        
         current_target_positions = self._target_positions[self.leatherback._ALL_INDICES, self._target_index]
         self._position_error_vector = current_target_positions[:, :2] - self.leatherback.data.root_pos_w[:, :2]
         self._position_error = torch.norm(self._position_error_vector, dim=-1)
