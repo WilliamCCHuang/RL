@@ -190,7 +190,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
     # wrap around environment for skrl
-    env = SkrlVecEnvWrapper(env, ml_framework=args_cli.ml_framework)  # same as: `wrap_env(env, wrapper="auto")`
+    env = SkrlVecEnvWrapper(env, ml_framework='torch')
     
     memory_size = agent_cfg["memory"]["memory_size"]
     if memory_size < 0:
