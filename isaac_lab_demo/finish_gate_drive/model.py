@@ -14,7 +14,7 @@ class CNNBackboneSharedModel(GaussianMixin, DeterministicMixin, Model):
         DeterministicMixin.__init__(self, clip_actions, role="value")
 
         # shared CNN backbone
-        self.net = nn.Sequential(
+        self.backbone = nn.Sequential(
             nn.Conv2d(3, 16, kernel_size=8, stride=4),
             nn.BatchNorm2d(16),
             nn.ReLU(),
@@ -24,20 +24,21 @@ class CNNBackboneSharedModel(GaussianMixin, DeterministicMixin, Model):
             nn.Conv2d(32, 32, kernel_size=3, stride=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
+            nn.MaxPool2d(2),
             nn.Flatten(),
         )
 
         # separated layers ("policy")
-        self.mean_layer = nn.Sequential(
-            nn.Linear(32, self.num_actions),
+        self.policy_layer = nn.Sequential(
+            nn.LazyLinear(32),
             nn.ELU(),
-            nn.Linear(32, self.num_actions)
+            nn.LazyLinear(self.num_actions)
         )
         self.log_std_parameter = nn.Parameter(torch.full(size=(self.num_actions,), fill_value=0.0), requires_grad=True)
 
         # separated layer ("value")
         self.value_layer = nn.Sequential(
-            nn.Linear(32, 32),
+            nn.LazyLinear(32),
             nn.ELU(),
             nn.Linear(32, 1)
         )
@@ -54,21 +55,19 @@ class CNNBackboneSharedModel(GaussianMixin, DeterministicMixin, Model):
         if role == "policy":
             # save shared layers/network output to perform a single forward-pass
             states = unflatten_tensorized_space(self.observation_space, inputs.get("states"))
-            taken_actions = unflatten_tensorized_space(self.action_space, inputs.get("taken_actions"))
-            features_extractor = self.features_extractor_container(torch.permute(states, (0, 3, 1, 2)))
-            net = self.net_container(features_extractor)
-            self._shared_output = net
-            output = self.policy_layer(net)
+            # taken_actions = unflatten_tensorized_space(self.action_space, inputs.get("taken_actions"))
+            features = self.backbone(torch.permute(states, (0, 3, 1, 2)))
+            self._shared_output = features
+            output = self.policy_layer(features)
             return output, self.log_std_parameter, {}
         
         elif role == "value":
             # use saved shared layers/network output to perform a single forward-pass, if it was saved
             if self._shared_output is None:
                 states = unflatten_tensorized_space(self.observation_space, inputs.get("states"))
-                taken_actions = unflatten_tensorized_space(self.action_space, inputs.get("taken_actions"))
-                features_extractor = self.features_extractor_container(torch.permute(states, (0, 3, 1, 2)))
-                net = self.net_container(features_extractor)
-                shared_output = net
+                # taken_actions = unflatten_tensorized_space(self.action_space, inputs.get("taken_actions"))
+                features = self.backbone(torch.permute(states, (0, 3, 1, 2)))
+                shared_output = features
             else:
                 shared_output = self._shared_output
             self._shared_output = None

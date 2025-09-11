@@ -3,11 +3,9 @@ import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg
 
-USD_PATH = os.path.join('./assets/leatherback.usd')
-
-LEATHERBACK_CFG = ArticulationCfg(
+CAR_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=USD_PATH,
+        usd_path='./assets/leatherback.usd',
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             rigid_body_enabled=True,
             max_linear_velocity=1000.0,

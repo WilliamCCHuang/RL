@@ -5,21 +5,34 @@ from collections.abc import Sequence
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation, ArticulationCfg, RigidObject, RigidObjectCfg
-from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg
+from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg, ViewerCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from isaaclab.utils import configclass
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.sensors import Camera, CameraCfg, save_images_to_file
-from isaaclab_assets.robots.leatherback import LEATHERBACK_CFG
 
-from .cfgs.waypoint_cfg import WAYPOINT_CFG
-from .cfgs.gate_cfg import (
+from cfgs.waypoint_cfg import WAYPOINT_CFG
+from cfgs.car_cfg import CAR_CFG
+from cfgs.gate_cfg import (
     FINISH_GATE_CFG,
     FINISH_GATE_WITH_BASE_CFG,
     NO_PASS_GATE_CFG,
     NO_PASS_GATE_WITH_BASE_CFG
+)
+
+import gymnasium as gym
+import agents
+
+gym.register(
+    id="Finish-Gate-Drive-Direct",
+    entry_point=f"finish_gate_drive_env:FinishGateDriveEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "finish_gate_drive_env:FinishGateDriveEnvCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
 )
 
 @configclass
@@ -30,11 +43,12 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
 
     sim: SimulationCfg = SimulationCfg(dt=1 / 60, render_interval=decimation)
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=env_spacing, replicate_physics=True)
+    viewer: ViewerCfg = ViewerCfg(eye=(14, 18, 20), lookat=(14, 18, 0))
     
     # cfgs
-    car_cfg: ArticulationCfg = LEATHERBACK_CFG.replace(prim_path="/World/envs/env_.*/Car")
+    car_cfg: ArticulationCfg = CAR_CFG.replace(prim_path="/World/envs/env_.*/Car")
     camera_cfg = CameraCfg(
-        prim_path="/World/envs/env_.*/Robot/Rigid_Bodies/Chassis/Camera_Right",
+        prim_path="/World/envs/env_.*/Car/Rigid_Bodies/Chassis/Camera_Right",
         update_period=0.1,
         height=120, # 480,
         width=160, # 640,
@@ -80,7 +94,7 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     heading_coefficient = 0.25
     heading_progress_weight = 0.05
 
-    save_images = False
+    save_images = True
 
 
 class FinishGateDriveEnv(DirectRLEnv):
@@ -201,7 +215,7 @@ class FinishGateDriveEnv(DirectRLEnv):
 
         # return {"policy": obs}
         
-        camera_data = self._camera_right.data.output['rgb'] / 255  # (num_envs, h, w, c)
+        camera_data = self._camera.data.output['rgb'] / 255  # (num_envs, h, w, c)
 
         if self.cfg.save_images:
             save_images_to_file(camera_data, f"camera_data.png")

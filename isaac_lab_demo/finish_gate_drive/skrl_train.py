@@ -97,8 +97,12 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 from skrl.agents.torch.ppo import PPO
 from skrl.memories.torch import RandomMemory
 from skrl.trainers.torch import SequentialTrainer
+from skrl.resources.schedulers.torch import KLAdaptiveLR
+from skrl.resources.preprocessors.torch import RunningStandardScaler
+from skrl.utils.runner.torch import Runner
 
-from .model import CNNBackboneSharedModel
+import finish_gate_drive_env  # import to register env in gym
+from model import CNNBackboneSharedModel
 
 
 # config shortcuts
@@ -138,7 +142,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Logging experiment in directory: {log_root_path}")
     # specify directory for logging runs: {time-stamp}_{run_name}
-    log_dir = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + f"_{algorithm}_{args_cli.ml_framework}"
+    log_dir = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     # The Ray Tune workflow extracts experiment name using the logging line below, hence, do not change it (see PR #2346, comment-2819298849)
     print(f"Exact experiment name requested from command line: {log_dir}")
     if agent_cfg["agent"]["experiment"]["experiment_name"]:
@@ -192,42 +196,65 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # wrap around environment for skrl
     env = SkrlVecEnvWrapper(env, ml_framework='torch')
     
-    memory_size = agent_cfg["memory"]["memory_size"]
-    if memory_size < 0:
-        memory_size = agent_cfg["agent"]["rollouts"]
-    memory = RandomMemory(
-        memory_size=memory_size,
-        num_envs=env.num_envs,
-        device=env_cfg.sim.device
-    )
+    if agent_cfg["models"]["policy"]["network"][0]["name"] == "CNNBackboneSharedModel":
+        memory_size = agent_cfg["memory"]["memory_size"]
+        if memory_size < 0:
+            memory_size = agent_cfg["agent"]["rollouts"]
+        memory = RandomMemory(
+            memory_size=memory_size,
+            num_envs=env.num_envs,
+            device=env_cfg.sim.device
+        )
 
-    # custom models
-    models = {}
-    models["policy"] = CNNBackboneSharedModel(
-        observation_space=env.observation_space,
-        action_space=env.action_space,
-        device=env_cfg.sim.device,
-        clip_actions=agent_cfg["models"]["policy"]["clip_actions"] and agent_cfg["models"]["value"]["clip_actions"],
-        clip_log_std=agent_cfg["models"]["policy"]["clip_log_std"],
-        min_log_std=agent_cfg["models"]["policy"]["min_log_std"],
-        max_log_std=agent_cfg["models"]["policy"]["max_log_std"],
-    )
-    models["value"] = models["policy"]
+        # custom models
+        models = {}
+        models["policy"] = CNNBackboneSharedModel(
+            observation_space=env.observation_space,
+            action_space=env.action_space,
+            device=env_cfg.sim.device,
+            clip_actions=agent_cfg["models"]["policy"]["clip_actions"] and agent_cfg["models"]["value"]["clip_actions"],
+            clip_log_std=agent_cfg["models"]["policy"]["clip_log_std"],
+            min_log_std=agent_cfg["models"]["policy"]["min_log_std"],
+            max_log_std=agent_cfg["models"]["policy"]["max_log_std"],
+        )
+        models["value"] = models["policy"]
 
-    agent = PPO(
-        models=models,
-        memory=memory,
-        cfg=agent_cfg["agent"],
-        observation_space=env.observation_space,
-        action_space=env.action_space,
-        device=env_cfg.sim.device
-    )
+        def reward_shaper_function(scale):
+            def reward_shaper(rewards, *args, **kwargs):
+                return rewards * scale
+            return reward_shaper
+        agent_cfg["agent"]["learning_rate_scheduler"] = KLAdaptiveLR
+        agent_cfg["agent"]["state_preprocessor"] = RunningStandardScaler
+        agent_cfg["agent"]["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": env_cfg.sim.device}
+        agent_cfg["agent"]["value_preprocessor"] = RunningStandardScaler
+        agent_cfg["agent"]["value_preprocessor_kwargs"] = {"size": 1, "device": env_cfg.sim.device}
+        agent_cfg["agent"]["rewards_shaper"] = reward_shaper_function(agent_cfg["agent"]["rewards_shaper_scale"])
 
-    cfg_trainer = agent_cfg["trainer"]
-    trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=[agent])
+        agent = PPO(
+            models=models,
+            memory=memory,
+            cfg=agent_cfg["agent"],
+            observation_space=env.observation_space,
+            action_space=env.action_space,
+            device=env_cfg.sim.device
+        )
 
-    # start training
-    trainer.train()
+        cfg_trainer = agent_cfg["trainer"]
+        trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=[agent])
+
+        # start training
+        trainer.train()
+
+    else:
+        runner = Runner(env, agent_cfg)
+
+        # load checkpoint (if specified)
+        if resume_path:
+            print(f"[INFO] Loading model checkpoint from: {resume_path}")
+            runner.agent.load(resume_path)
+
+        # run training
+        runner.run()
 
     # close the simulator
     env.close()
