@@ -43,7 +43,7 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
 
     sim: SimulationCfg = SimulationCfg(dt=1 / 60, render_interval=decimation)
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=env_spacing, replicate_physics=True)
-    viewer: ViewerCfg = ViewerCfg(eye=(14, 18, 20), lookat=(14, 18, 0))
+    viewer: ViewerCfg = ViewerCfg(eye=(12, 18, 10), lookat=(12, 18, 0))
     
     # cfgs
     car_cfg: ArticulationCfg = CAR_CFG.replace(prim_path="/World/envs/env_.*/Car")

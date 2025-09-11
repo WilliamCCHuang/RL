@@ -241,6 +241,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
         cfg_trainer = agent_cfg["trainer"]
         trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=[agent])
+        
+        if resume_path:
+            print(f"[INFO] Loading model checkpoint from: {resume_path}")
+            trainer.agents.load(resume_path)
 
         # start training
         trainer.train()
