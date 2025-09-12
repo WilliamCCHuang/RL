@@ -97,22 +97,30 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
 
     record_obs_view_video = False
     record_back_view_video = False
-    back_camera_cfg = CameraCfg(
-        prim_path="/World/envs/env_.*/Car/Rigid_Bodies/Chassis/Camera_Back",
-        update_period=0.1,
-        height=720,
-        width=1280,
-        spawn=sim_utils.PinholeCameraCfg(),  # use the default setting
-        offset=CameraCfg.OffsetCfg(pos=(-1.0, 0.0, 5.0), rot=(1.0, 0.0, 0.0, 0.0), convention="ros"),  # set this camera behind the car
-        data_types=["rgb"],
-    )
+    # back_camera_cfg = CameraCfg(
+    #     prim_path="/World/envs/env_.*/Car/Rigid_Bodies/Chassis/Camera_Back",
+    #     update_period=0.1,
+    #     height=720,
+    #     width=1280,
+    #     spawn=sim_utils.PinholeCameraCfg(),  # use the default setting
+    #     offset=CameraCfg.OffsetCfg(pos=(-1.0, 0.0, 5.0), rot=(1.0, 0.0, 0.0, 0.0), convention="ros"),  # set this camera behind the car
+    #     data_types=["rgb"],
+    # )
+    if record_obs_view_video:
+        viewer: ViewerCfg = ViewerCfg(
+            eye=(0.0, 0.0, 0.0),
+            lookat=(1.0, 0.0, 0.0),
+            env_index=0,
+            origin_type="asset_root",
+            asset_name="car_camera"
+        )
     if record_back_view_video:
         viewer: ViewerCfg = ViewerCfg(
             eye=(0.0, 0.0, 0.0),
-            lookat=(1.0, 0.0, -0.5),
+            lookat=(1.0, 0.0, 0.0),
             env_index=0,
             origin_type="asset_root",
-            asset_name=""
+            asset_name="car"
         )
 
 
@@ -182,10 +190,8 @@ class FinishGateDriveEnv(DirectRLEnv):
         
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions(global_prim_paths=[])
-        self.scene.articulations["leatherback"] = self.car
+        self.scene.articulations["car"] = self.car
         self.scene.sensors["car_camera"] = self.car_camera
-        if self.cfg.record_back_view_video:
-            self.scene.sensors["back_camera"] = self.back_camera
 
         # Add lighting
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
@@ -349,14 +355,14 @@ class FinishGateDriveEnv(DirectRLEnv):
             marker_indices = one_hot_encoded.view(-1).tolist()
             self.waypoints.visualize(marker_indices=marker_indices)
 
-    def render(self, recompute: bool = False):
-        if self.cfg.record_obs_view_video or self.cfg.record_back_view_video:
-            if self.cfg.record_obs_view_video:
-                camera_data = self.car_camera.data.output['rgb']  # (num_envs, h, w, c)
-            elif self.cfg.record_back_view_video:
-                camera_data = self.back_camera.data.output['rgb']  # (num_envs, h, w, c)
+    # def render(self, recompute: bool = False):
+    #     if self.cfg.record_obs_view_video or self.cfg.record_back_view_video:
+    #         if self.cfg.record_obs_view_video:
+    #             camera_data = self.car_camera.data.output['rgb']  # (num_envs, h, w, c)
+    #         elif self.cfg.record_back_view_video:
+    #             camera_data = self.back_camera.data.output['rgb']  # (num_envs, h, w, c)
 
-            camera_data = camera_data[0].detach().cpu().numpy()  # choose the image of the 1st env
-            return camera_data
-        else:
-            return super().render(recompute)
+    #         camera_data = camera_data[0].detach().cpu().numpy()  # choose the image of the 1st env
+    #         return camera_data
+    #     else:
+    #         return super().render(recompute)
