@@ -94,7 +94,6 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     heading_coefficient = 0.25
     heading_progress_weight = 0.05
 
-    # TODO: debug_vis?
     record_obs_view_video = False
     record_back_view_video = False
     back_camera_cfg = CameraCfg(
@@ -102,8 +101,8 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
         update_period=0.1,
         height=120, # 480,
         width=160, # 640,
-        spawn=sim_utils.CameraCfg(),  # use the default setting
-        offset=sim_utils.CameraCfg.OffsetCfg(pos=(-1.0, 0.0, 5.0), rot=(1.0, 0.0, 0.0, 0.0), convention="ros"),  # set this camera behind the car
+        spawn=sim_utils.PinholeCameraCfg(),  # use the default setting
+        offset=CameraCfg.OffsetCfg(pos=(-1.0, 0.0, 5.0), rot=(1.0, 0.0, 0.0, 0.0), convention="ros"),  # set this camera behind the car
         data_types=["rgb"],
     )
 
@@ -147,8 +146,8 @@ class FinishGateDriveEnv(DirectRLEnv):
 
         # Setup rest of the scene
         self.car = Articulation(self.cfg.car_cfg)
-        self.car_camera = Camera(self.cfg.camera_cfg)
-        self.back_camera = Camera(self.cfg.back_camera_cfg) if self.cfg.record_back_video else None
+        self.car_camera = Camera(self.cfg.car_camera_cfg)
+        self.back_camera = Camera(self.cfg.back_camera_cfg) if self.cfg.record_back_view_video else None
         self.finish_gates = []
         for i in range(self.cfg.num_goals):
             finish_gate_cfg = self.cfg.finish_gate_cfg.replace(
@@ -228,8 +227,8 @@ class FinishGateDriveEnv(DirectRLEnv):
         
         camera_data = self.car_camera.data.output['rgb'] / 255  # (num_envs, h, w, c)
 
-        if self.cfg.save_images:
-            save_images_to_file(camera_data, f"camera_data.png")
+        # if self.cfg.save_images:
+        #     save_images_to_file(camera_data, f"camera_data.png")
 
         return {"policy": camera_data.clone()}
     
@@ -346,7 +345,7 @@ class FinishGateDriveEnv(DirectRLEnv):
             elif self.cfg.record_back_view_video:
                 camera_data = self.back_camera.data.output['rgb']  # (num_envs, h, w, c)
 
-            camera_data = camera_data[0]  # choose the image of the 1st env
+            camera_data = camera_data[0].detach().cpu().numpy()  # choose the image of the 1st env
             return camera_data
         else:
             return super().render(recompute)
