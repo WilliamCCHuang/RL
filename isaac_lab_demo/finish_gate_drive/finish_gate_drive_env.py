@@ -43,7 +43,7 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
 
     sim: SimulationCfg = SimulationCfg(dt=1 / 60, render_interval=decimation)
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=env_spacing, replicate_physics=True)
-    viewer: ViewerCfg = ViewerCfg(eye=(12, 18, 10), lookat=(12, 18, 0))
+    viewer: ViewerCfg = ViewerCfg(eye=(10, 18, 15), lookat=(10, 18, 0))
     
     # cfgs
     car_cfg: ArticulationCfg = CAR_CFG.replace(prim_path="/World/envs/env_.*/Car")
@@ -54,6 +54,7 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
         width=160, # 640,
         spawn=None,  # set to `None` as the `Camera_Right` is already present. See https://github.com/isaac-sim/IsaacLab/blob/802ec5b7df771be1b91bc6744b2442eaa8f458df/source/isaaclab/isaaclab/sensors/camera/camera_cfg.py#L45
         data_types=["rgb"],
+        debug_vis=True
     )
     waypoint_cfg = WAYPOINT_CFG
     finish_gate_cfg = FINISH_GATE_CFG
@@ -99,12 +100,20 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     back_camera_cfg = CameraCfg(
         prim_path="/World/envs/env_.*/Car/Rigid_Bodies/Chassis/Camera_Back",
         update_period=0.1,
-        height=120, # 480,
-        width=160, # 640,
+        height=720,
+        width=1280,
         spawn=sim_utils.PinholeCameraCfg(),  # use the default setting
         offset=CameraCfg.OffsetCfg(pos=(-1.0, 0.0, 5.0), rot=(1.0, 0.0, 0.0, 0.0), convention="ros"),  # set this camera behind the car
         data_types=["rgb"],
     )
+    if record_back_view_video:
+        viewer: ViewerCfg = ViewerCfg(
+            eye=(0.0, 0.0, 0.0),
+            lookat=(1.0, 0.0, -0.5),
+            env_index=0,
+            origin_type="asset_root",
+            asset_name=""
+        )
 
 
 class FinishGateDriveEnv(DirectRLEnv):
@@ -174,7 +183,9 @@ class FinishGateDriveEnv(DirectRLEnv):
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions(global_prim_paths=[])
         self.scene.articulations["leatherback"] = self.car
-        # self.scene.sensors["car_camera"] = self.car_camera
+        self.scene.sensors["car_camera"] = self.car_camera
+        if self.cfg.record_back_view_video:
+            self.scene.sensors["back_camera"] = self.back_camera
 
         # Add lighting
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
