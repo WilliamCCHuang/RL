@@ -10,8 +10,8 @@ FINISH_GATE_CFG = RigidObjectCfg(
             retain_accelerations=False,
             linear_damping=0.0,
             angular_damping=0.0,
-            max_linear_velocity=1000.0,
-            max_angular_velocity=1000.0,
+            max_linear_velocity=0.0, # 1000.0,  # set to zero to fix it even if it is collided
+            max_angular_velocity=0.0, # 1000.0,  # set to zero to fix it even if it is collided
             max_depenetration_velocity=1.0,
         ),
     ),
@@ -29,8 +29,8 @@ FINISH_GATE_WITH_BASE_CFG = RigidObjectCfg(
             retain_accelerations=False,
             linear_damping=0.0,
             angular_damping=0.0,
-            max_linear_velocity=1000.0,
-            max_angular_velocity=1000.0,
+            max_linear_velocity=0.0, # 1000.0,  # set to zero to fix it even if it is collided
+            max_angular_velocity=0.0, # 1000.0,  # set to zero to fix it even if it is collided
             max_depenetration_velocity=1.0,
         ),
     ),
@@ -48,8 +48,8 @@ NO_PASS_GATE_CFG = RigidObjectCfg(
             retain_accelerations=False,
             linear_damping=0.0,
             angular_damping=0.0,
-            max_linear_velocity=1000.0,
-            max_angular_velocity=1000.0,
+            max_linear_velocity=0.0, # 1000.0,  # set to zero to fix it even if it is collided
+            max_angular_velocity=0.0, # 1000.0,  # set to zero to fix it even if it is collided
             max_depenetration_velocity=1.0,
         ),
     ),
@@ -67,8 +67,8 @@ NO_PASS_GATE_WITH_BASE_CFG = RigidObjectCfg(
             retain_accelerations=False,
             linear_damping=0.0,
             angular_damping=0.0,
-            max_linear_velocity=1000.0,
-            max_angular_velocity=1000.0,
+            max_linear_velocity=0.0, # 1000.0,  # set to zero to fix it even if it is collided
+            max_angular_velocity=0.0, # 1000.0,  # set to zero to fix it even if it is collided
             max_depenetration_velocity=1.0,
         ),
     ),

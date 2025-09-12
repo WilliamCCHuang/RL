@@ -43,16 +43,16 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
 
     sim: SimulationCfg = SimulationCfg(dt=1 / 60, render_interval=decimation)
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=env_spacing, replicate_physics=True)
-    viewer: ViewerCfg = ViewerCfg(eye=(12, 18, 10), lookat=(12, 18, 0))
+    # viewer: ViewerCfg = ViewerCfg(eye=(12, 18, 10), lookat=(12, 18, 0))
     
     # cfgs
     car_cfg: ArticulationCfg = CAR_CFG.replace(prim_path="/World/envs/env_.*/Car")
-    camera_cfg = CameraCfg(
+    car_camera_cfg = CameraCfg(
         prim_path="/World/envs/env_.*/Car/Rigid_Bodies/Chassis/Camera_Right",
         update_period=0.1,
         height=120, # 480,
         width=160, # 640,
-        spawn=None,
+        spawn=None,  # set to `None` as the `Camera_Right` is already present. See https://github.com/isaac-sim/IsaacLab/blob/802ec5b7df771be1b91bc6744b2442eaa8f458df/source/isaaclab/isaaclab/sensors/camera/camera_cfg.py#L45
         data_types=["rgb"],
     )
     waypoint_cfg = WAYPOINT_CFG
@@ -63,7 +63,7 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
 
     # env space
     action_space = 2  # one for throttle, and another for steering
-    observation_space = [camera_cfg.height, camera_cfg.width, 3]
+    observation_space = [car_camera_cfg.height, car_camera_cfg.width, 3]
     state_space = 0
 
     # joint names
@@ -94,7 +94,17 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     heading_coefficient = 0.25
     heading_progress_weight = 0.05
 
-    save_images = True
+    record_obs_view_video = False
+    record_back_view_video = False
+    back_camera_cfg = CameraCfg(
+        prim_path="/World/envs/env_.*/Car/Rigid_Bodies/Chassis/Camera_Back",
+        update_period=0.1,
+        height=120, # 480,
+        width=160, # 640,
+        spawn=sim_utils.CameraCfg(),  # use the default setting
+        offset=sim_utils.CameraCfg.OffsetCfg(pos=(-1.0, 0.0, 5.0), rot=(1.0, 0.0, 0.0, 0.0), convention="ros"),  # set this camera behind the car
+        data_types=["rgb"],
+    )
 
 
 class FinishGateDriveEnv(DirectRLEnv):
@@ -136,8 +146,8 @@ class FinishGateDriveEnv(DirectRLEnv):
 
         # Setup rest of the scene
         self.car = Articulation(self.cfg.car_cfg)
-        # self.camera  # used to record video?
-        self._camera = Camera(self.cfg.camera_cfg)
+        self.car_camera = Camera(self.cfg.camera_cfg)
+        self.back_camera = Camera(self.cfg.back_camera_cfg) if self.cfg.record_back_video else None
         self.finish_gates = []
         for i in range(self.cfg.num_goals):
             finish_gate_cfg = self.cfg.finish_gate_cfg.replace(
@@ -164,7 +174,7 @@ class FinishGateDriveEnv(DirectRLEnv):
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions(global_prim_paths=[])
         self.scene.articulations["leatherback"] = self.car
-        self.scene.sensors["camera"] = self._camera
+        # self.scene.sensors["car_camera"] = self.car_camera
 
         # Add lighting
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
@@ -215,7 +225,7 @@ class FinishGateDriveEnv(DirectRLEnv):
 
         # return {"policy": obs}
         
-        camera_data = self._camera.data.output['rgb'] / 255  # (num_envs, h, w, c)
+        camera_data = self.car_camera.data.output['rgb'] / 255  # (num_envs, h, w, c)
 
         if self.cfg.save_images:
             save_images_to_file(camera_data, f"camera_data.png")
@@ -327,3 +337,15 @@ class FinishGateDriveEnv(DirectRLEnv):
             one_hot_encoded = torch.nn.functional.one_hot(self._target_index.long(), num_classes=self._num_goals)
             marker_indices = one_hot_encoded.view(-1).tolist()
             self.waypoints.visualize(marker_indices=marker_indices)
+
+    def render(self, recompute: bool = False):
+        if self.cfg.record_obs_view_video or self.cfg.record_back_view_video:
+            if self.cfg.record_obs_view_video:
+                camera_data = self.car_camera.data.output['rgb']  # (num_envs, h, w, c)
+            elif self.cfg.record_back_view_video:
+                camera_data = self.back_camera.data.output['rgb']  # (num_envs, h, w, c)
+
+            camera_data = camera_data[0]  # choose the image of the 1st env
+            return camera_data
+        else:
+            return super().render(recompute)
