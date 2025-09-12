@@ -94,6 +94,7 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     heading_coefficient = 0.25
     heading_progress_weight = 0.05
 
+    # TODO: debug_vis?
     record_obs_view_video = False
     record_back_view_video = False
     back_camera_cfg = CameraCfg(
