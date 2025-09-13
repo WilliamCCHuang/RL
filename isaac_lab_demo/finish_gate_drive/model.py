@@ -15,7 +15,7 @@ class CNNBackboneSharedModel(GaussianMixin, DeterministicMixin, Model):
 
         # shared CNN backbone
         self.backbone = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=8, stride=4),
+            nn.LazyConv2d(16, kernel_size=8, stride=4),
             nn.BatchNorm2d(16),
             nn.ReLU(),
             nn.Conv2d(16, 32, kernel_size=4, stride=2),

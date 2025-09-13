@@ -47,14 +47,23 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     
     # cfgs
     car_cfg: ArticulationCfg = CAR_CFG.replace(prim_path="/World/envs/env_.*/Car")
-    car_camera_cfg = CameraCfg(
+    car_camera_right_cfg = CameraCfg(
         prim_path="/World/envs/env_.*/Car/Rigid_Bodies/Chassis/Camera_Right",
         update_period=0.1,
         height=120, # 480,
         width=160, # 640,
         spawn=None,  # set to `None` as the `Camera_Right` is already present. See https://github.com/isaac-sim/IsaacLab/blob/802ec5b7df771be1b91bc6744b2442eaa8f458df/source/isaaclab/isaaclab/sensors/camera/camera_cfg.py#L45
         data_types=["rgb"],
-        debug_vis=True
+        debug_vis=False
+    )
+    car_camera_left_cfg = CameraCfg(
+        prim_path="/World/envs/env_.*/Car/Rigid_Bodies/Chassis/Camera_Left",
+        update_period=0.1,
+        height=120, # 480,
+        width=160, # 640,
+        spawn=None,  # set to `None` as the `Camera_Left` is already present. See https://github.com/isaac-sim/IsaacLab/blob/802ec5b7df771be1b91bc6744b2442eaa8f458df/source/isaaclab/isaaclab/sensors/camera/camera_cfg.py#L45
+        data_types=["rgb"],
+        debug_vis=False
     )
     waypoint_cfg = WAYPOINT_CFG
     finish_gate_cfg = FINISH_GATE_CFG
@@ -64,7 +73,7 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
 
     # env space
     action_space = 2  # one for throttle, and another for steering
-    observation_space = [car_camera_cfg.height, car_camera_cfg.width, 3]
+    observation_space = [car_camera_right_cfg.height, car_camera_right_cfg.width, 2*3]
     state_space = 0
 
     # joint names
@@ -87,25 +96,16 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     steering_scale = 0.1
     steering_max = 0.75
 
-    course_length_coefficient = 2.5
+    course_length_coefficient = 1.5
     course_width_coefficient = 2.0
-    position_tolerance = 0.15
+    position_tolerance = 0.25
     goal_reached_weight = 10.0
     position_progress_weight = 1.0
     heading_coefficient = 0.25
     heading_progress_weight = 0.05
 
     record_obs_view_video = False
-    record_back_view_video = False
-    # back_camera_cfg = CameraCfg(
-    #     prim_path="/World/envs/env_.*/Car/Rigid_Bodies/Chassis/Camera_Back",
-    #     update_period=0.1,
-    #     height=720,
-    #     width=1280,
-    #     spawn=sim_utils.PinholeCameraCfg(),  # use the default setting
-    #     offset=CameraCfg.OffsetCfg(pos=(-1.0, 0.0, 5.0), rot=(1.0, 0.0, 0.0, 0.0), convention="ros"),  # set this camera behind the car
-    #     data_types=["rgb"],
-    # )
+    record_back_view_video = True
     if record_obs_view_video:
         viewer: ViewerCfg = ViewerCfg(
             eye=(0.0, 0.0, 0.0),
@@ -116,8 +116,8 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
         )
     if record_back_view_video:
         viewer: ViewerCfg = ViewerCfg(
-            eye=(0.0, 0.0, 0.0),
-            lookat=(1.0, 0.0, 0.0),
+            eye=(-1.5, 0.0, 0.5),
+            lookat=(1.0, 0.0, 0.4),
             env_index=0,
             origin_type="asset_root",
             asset_name="car"
@@ -163,8 +163,8 @@ class FinishGateDriveEnv(DirectRLEnv):
 
         # Setup rest of the scene
         self.car = Articulation(self.cfg.car_cfg)
-        self.car_camera = Camera(self.cfg.car_camera_cfg)
-        self.back_camera = Camera(self.cfg.back_camera_cfg) if self.cfg.record_back_view_video else None
+        self.car_camera_right = Camera(self.cfg.car_camera_right_cfg)
+        self.car_camera_left = Camera(self.cfg.car_camera_left_cfg)
         self.finish_gates = []
         for i in range(self.cfg.num_goals):
             finish_gate_cfg = self.cfg.finish_gate_cfg.replace(
@@ -191,7 +191,7 @@ class FinishGateDriveEnv(DirectRLEnv):
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions(global_prim_paths=[])
         self.scene.articulations["car"] = self.car
-        self.scene.sensors["car_camera"] = self.car_camera
+        # self.scene.sensors["car_camera_right"] = self.car_camera
 
         # Add lighting
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
@@ -222,30 +222,10 @@ class FinishGateDriveEnv(DirectRLEnv):
             self._target_positions[self.car._ALL_INDICES, self._target_index, 0] - self.car.data.root_link_pos_w[:, 0],
         )
         self.target_heading_error = torch.atan2(torch.sin(target_heading_w - heading), torch.cos(target_heading_w - heading))
-
-        # obs = torch.cat(
-        #     (
-        #         self._position_error.unsqueeze(dim=1),
-        #         torch.cos(self.target_heading_error).unsqueeze(dim=1),
-        #         torch.sin(self.target_heading_error).unsqueeze(dim=1),
-        #         self.car.data.root_lin_vel_b[:, 0].unsqueeze(dim=1),
-        #         self.car.data.root_lin_vel_b[:, 1].unsqueeze(dim=1),
-        #         self.car.data.root_ang_vel_w[:, 2].unsqueeze(dim=1),
-        #         self._throttle_state[:, 0].unsqueeze(dim=1),
-        #         self._steering_state[:, 0].unsqueeze(dim=1),
-        #     ),
-        #     dim=-1,
-        # )
         
-        # if torch.any(obs.isnan()):
-        #     raise ValueError("Observations cannot be NAN")
-
-        # return {"policy": obs}
-        
-        camera_data = self.car_camera.data.output['rgb'] / 255  # (num_envs, h, w, c)
-
-        # if self.cfg.save_images:
-        #     save_images_to_file(camera_data, f"camera_data.png")
+        right_camera_data = self.car_camera_right.data.output['rgb'] / 255  # (num_envs, h, w, c)
+        left_camera_data = self.car_camera_left.data.output['rgb'] / 255  # (num_envs, h, w, c)
+        camera_data = torch.cat([right_camera_data, left_camera_data], dim=-1)  # (num_envs, h, w, 2*c)
 
         return {"policy": camera_data.clone()}
     
@@ -311,10 +291,10 @@ class FinishGateDriveEnv(DirectRLEnv):
         leatherback_pose[:, :3] += self.scene.env_origins[env_ids]
         leatherback_pose[:, 0] -= self.env_spacing / 2
         leatherback_pose[:, 1] += 2.0 * torch.rand((num_envs), dtype=torch.float32, device=self.device) * self.cfg.course_width_coefficient
-
-        angles = torch.pi / 6.0 * torch.rand((num_envs), dtype=torch.float32, device=self.device)
-        leatherback_pose[:, 3] = torch.cos(angles * 0.5)
-        leatherback_pose[:, 6] = torch.sin(angles * 0.5)
+        
+        angles = torch.pi / 4.0 * (torch.rand((num_envs), dtype=torch.float32, device=self.device) - 0.5)
+        leatherback_pose[:, 3] = torch.cos(angles)
+        leatherback_pose[:, 6] = torch.sin(angles)
 
         self.car.write_root_pose_to_sim(leatherback_pose, env_ids)
         self.car.write_root_velocity_to_sim(leatherback_velocities, env_ids)
@@ -354,15 +334,3 @@ class FinishGateDriveEnv(DirectRLEnv):
             one_hot_encoded = torch.nn.functional.one_hot(self._target_index.long(), num_classes=self._num_goals)
             marker_indices = one_hot_encoded.view(-1).tolist()
             self.waypoints.visualize(marker_indices=marker_indices)
-
-    # def render(self, recompute: bool = False):
-    #     if self.cfg.record_obs_view_video or self.cfg.record_back_view_video:
-    #         if self.cfg.record_obs_view_video:
-    #             camera_data = self.car_camera.data.output['rgb']  # (num_envs, h, w, c)
-    #         elif self.cfg.record_back_view_video:
-    #             camera_data = self.back_camera.data.output['rgb']  # (num_envs, h, w, c)
-
-    #         camera_data = camera_data[0].detach().cpu().numpy()  # choose the image of the 1st env
-    #         return camera_data
-    #     else:
-    #         return super().render(recompute)
