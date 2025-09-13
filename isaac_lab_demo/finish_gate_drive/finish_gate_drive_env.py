@@ -287,10 +287,12 @@ class FinishGateDriveEnv(DirectRLEnv):
         leatherback_velocities = default_state[:, 7:]
         joint_positions = self.car.data.default_joint_pos[env_ids]
         joint_velocities = self.car.data.default_joint_vel[env_ids]
-
+        
         leatherback_pose[:, :3] += self.scene.env_origins[env_ids]
-        leatherback_pose[:, 0] -= self.env_spacing / 2
-        leatherback_pose[:, 1] += 2.0 * torch.rand((num_envs), dtype=torch.float32, device=self.device) * self.cfg.course_width_coefficient
+        x_offset = - self.env_spacing / 2
+        y_offset = 2.0 * (torch.rand((num_envs), dtype=torch.float32, device=self.device) - 0.5)
+        leatherback_pose[:, 0] += x_offset
+        leatherback_pose[:, 1] += y_offset
         
         angles = torch.pi / 4.0 * (torch.rand((num_envs), dtype=torch.float32, device=self.device) - 0.5)
         leatherback_pose[:, 3] = torch.cos(angles)
@@ -307,9 +309,12 @@ class FinishGateDriveEnv(DirectRLEnv):
 
         spacing = 2 / self._num_goals  # 0.2
         target_positions = torch.arange(-0.8, 1.1, spacing, device=self.device) * self.env_spacing / self.cfg.course_length_coefficient
-        self._target_positions[env_ids, :len(target_positions), 0] = target_positions
-        self._target_positions[env_ids, :, 1] = torch.rand((num_envs, self._num_goals), dtype=torch.float32, device=self.device) + self.cfg.course_length_coefficient
-        self._target_positions[env_ids, :] += self.scene.env_origins[env_ids, :2].unsqueeze(1)
+        assert len(target_positions) == self._num_goals
+        y_offset = torch.rand((num_envs, self._num_goals), dtype=torch.float32, device=self.device) + self.cfg.course_length_coefficient
+
+        self._target_positions[env_ids, :, 0] = target_positions
+        self._target_positions[env_ids, :, 1] = y_offset
+        self._target_positions[env_ids, :, :] += self.scene.env_origins[env_ids, :2].unsqueeze(1)
 
     def _reset_markers_pos(self, env_ids):
         self._markers_pos[env_ids, :, :] = 0.0  # (num_envs, num_goals, 3)
