@@ -11,7 +11,7 @@ from isaaclab.sim import SimulationCfg
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from isaaclab.utils import configclass
 from isaaclab.markers import VisualizationMarkers
-from isaaclab.sensors import Camera, CameraCfg, save_images_to_file
+from isaaclab.sensors import Camera, CameraCfg
 
 from cfgs.waypoint_cfg import WAYPOINT_CFG
 from cfgs.car_cfg import CAR_CFG
@@ -43,11 +43,11 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
 
     sim: SimulationCfg = SimulationCfg(dt=1 / 60, render_interval=decimation)
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=env_spacing, replicate_physics=True)
-    viewer: ViewerCfg = ViewerCfg(eye=(10, 18, 15), lookat=(10, 18, 0))
+    viewer: ViewerCfg = ViewerCfg(eye=(-5, 0, 30), lookat=(-5, 0, 0))
     
     # cfgs
     car_cfg: ArticulationCfg = CAR_CFG.replace(prim_path="/World/envs/env_.*/Car")
-    car_camera_right_cfg = CameraCfg(
+    car_camera_cfg: CameraCfg = CameraCfg(
         prim_path="/World/envs/env_.*/Car/Rigid_Bodies/Chassis/Camera_Right",
         update_period=0.1,
         height=120, # 480,
@@ -56,24 +56,15 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
         data_types=["rgb"],
         debug_vis=False
     )
-    car_camera_left_cfg = CameraCfg(
-        prim_path="/World/envs/env_.*/Car/Rigid_Bodies/Chassis/Camera_Left",
-        update_period=0.1,
-        height=120, # 480,
-        width=160, # 640,
-        spawn=None,  # set to `None` as the `Camera_Left` is already present. See https://github.com/isaac-sim/IsaacLab/blob/802ec5b7df771be1b91bc6744b2442eaa8f458df/source/isaaclab/isaaclab/sensors/camera/camera_cfg.py#L45
-        data_types=["rgb"],
-        debug_vis=False
-    )
-    waypoint_cfg = WAYPOINT_CFG
-    finish_gate_cfg = FINISH_GATE_CFG
-    finish_gate_with_base_cfg = FINISH_GATE_WITH_BASE_CFG
-    no_pass_gate_cfg = NO_PASS_GATE_CFG
-    no_pass_gate_with_base_cfg = NO_PASS_GATE_WITH_BASE_CFG
+    waypoint_cfg: RigidObjectCfg = WAYPOINT_CFG
+    finish_gate_cfg: RigidObjectCfg = FINISH_GATE_CFG
+    finish_gate_with_base_cfg: RigidObjectCfg = FINISH_GATE_WITH_BASE_CFG
+    no_pass_gate_cfg: RigidObjectCfg = NO_PASS_GATE_CFG
+    no_pass_gate_with_base_cfg: RigidObjectCfg = NO_PASS_GATE_WITH_BASE_CFG
 
     # env space
     action_space = 2  # one for throttle, and another for steering
-    observation_space = [car_camera_right_cfg.height, car_camera_right_cfg.width, 2*3]
+    observation_space = [car_camera_cfg.height, car_camera_cfg.width, 3]
     state_space = 0
 
     # joint names
@@ -89,15 +80,14 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     ]
     
     # task-specific configuration
-    num_goals = 10
+    num_goals = 5
 
     throttle_scale = 10
     throttle_max = 50
     steering_scale = 0.1
     steering_max = 0.75
 
-    course_length_coefficient = 1.5
-    course_width_coefficient = 2.0
+    target_y_offset_scale = 1.0
     position_tolerance = 0.25
     goal_reached_weight = 10.0
     position_progress_weight = 1.0
@@ -163,8 +153,7 @@ class FinishGateDriveEnv(DirectRLEnv):
 
         # Setup rest of the scene
         self.car = Articulation(self.cfg.car_cfg)
-        self.car_camera_right = Camera(self.cfg.car_camera_right_cfg)
-        self.car_camera_left = Camera(self.cfg.car_camera_left_cfg)
+        self.car_camera = Camera(self.cfg.car_camera_cfg)
         self.finish_gates = []
         for i in range(self.cfg.num_goals):
             finish_gate_cfg = self.cfg.finish_gate_cfg.replace(
@@ -191,7 +180,7 @@ class FinishGateDriveEnv(DirectRLEnv):
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions(global_prim_paths=[])
         self.scene.articulations["car"] = self.car
-        # self.scene.sensors["car_camera_right"] = self.car_camera
+        self.scene.sensors["car_camera"] = self.car_camera
 
         # Add lighting
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
@@ -223,9 +212,7 @@ class FinishGateDriveEnv(DirectRLEnv):
         )
         self.target_heading_error = torch.atan2(torch.sin(target_heading_w - heading), torch.cos(target_heading_w - heading))
         
-        right_camera_data = self.car_camera_right.data.output['rgb'] / 255  # (num_envs, h, w, c)
-        left_camera_data = self.car_camera_left.data.output['rgb'] / 255  # (num_envs, h, w, c)
-        camera_data = torch.cat([right_camera_data, left_camera_data], dim=-1)  # (num_envs, h, w, 2*c)
+        camera_data = self.car_camera.data.output['rgb'] / 255  # (num_envs, h, w, c)
 
         return {"policy": camera_data.clone()}
     
@@ -283,23 +270,21 @@ class FinishGateDriveEnv(DirectRLEnv):
     def _reset_car(self, env_ids):
         num_envs = len(env_ids)
         default_state = self.car.data.default_root_state[env_ids]
-        leatherback_pose = default_state[:, :7]
-        leatherback_velocities = default_state[:, 7:]
+        car_pose = default_state[:, :7]
+        car_velocities = default_state[:, 7:]
         joint_positions = self.car.data.default_joint_pos[env_ids]
         joint_velocities = self.car.data.default_joint_vel[env_ids]
         
-        leatherback_pose[:, :3] += self.scene.env_origins[env_ids]
-        x_offset = - self.env_spacing / 2
-        y_offset = 2.0 * (torch.rand((num_envs), dtype=torch.float32, device=self.device) - 0.5)
-        leatherback_pose[:, 0] += x_offset
-        leatherback_pose[:, 1] += y_offset
+        car_pose[:, :3] += self.scene.env_origins[env_ids]
+        x_offset = - 0.5 * self.env_spacing
+        car_pose[:, 0] += x_offset
         
-        angles = torch.pi / 4.0 * (torch.rand((num_envs), dtype=torch.float32, device=self.device) - 0.5)
-        leatherback_pose[:, 3] = torch.cos(angles)
-        leatherback_pose[:, 6] = torch.sin(angles)
+        angles = torch.pi / 4.0 * self._generate_rand_at_cente((num_envs))
+        car_pose[:, 3] = torch.cos(angles)
+        car_pose[:, 6] = torch.sin(angles)
 
-        self.car.write_root_pose_to_sim(leatherback_pose, env_ids)
-        self.car.write_root_velocity_to_sim(leatherback_velocities, env_ids)
+        self.car.write_root_pose_to_sim(car_pose, env_ids)
+        self.car.write_root_velocity_to_sim(car_velocities, env_ids)
         self.car.write_joint_state_to_sim(joint_positions, joint_velocities, None, env_ids)
 
     def _reset_target_positions(self, env_ids):
@@ -307,10 +292,11 @@ class FinishGateDriveEnv(DirectRLEnv):
 
         self._target_positions[env_ids, :, :] = 0.0  # (num_envs, num_goals, 2)
 
-        spacing = 2 / self._num_goals  # 0.2
-        target_positions = torch.arange(-0.8, 1.1, spacing, device=self.device) * self.env_spacing / self.cfg.course_length_coefficient
+        spacing = 1 / self._num_goals  # 0.1
+        target_positions = torch.arange(-0.4, 0.5, spacing, device=self.device) * self.env_spacing
         assert len(target_positions) == self._num_goals
-        y_offset = torch.rand((num_envs, self._num_goals), dtype=torch.float32, device=self.device) + self.cfg.course_length_coefficient
+        y_offset = self.cfg.target_y_offset_scale * self._generate_rand_at_cente((num_envs, self._num_goals))
+        y_offset[:, 0] = 0  # set the first gate in the front of the car
 
         self._target_positions[env_ids, :, 0] = target_positions
         self._target_positions[env_ids, :, 1] = y_offset
@@ -339,3 +325,6 @@ class FinishGateDriveEnv(DirectRLEnv):
             one_hot_encoded = torch.nn.functional.one_hot(self._target_index.long(), num_classes=self._num_goals)
             marker_indices = one_hot_encoded.view(-1).tolist()
             self.waypoints.visualize(marker_indices=marker_indices)
+
+    def _generate_rand_at_cente(self, shape):
+        return torch.rand(shape, dtype=torch.float32, device=self.device) - 0.5
