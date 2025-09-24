@@ -200,32 +200,33 @@ class FinishGateDriveEnv(DirectRLEnv):
         self.car.set_joint_position_target(self._steering_action, joint_ids=self._steering_dof_idx)
 
     def _get_observations(self) -> dict:
-        current_target_positions = self._target_positions[self.car._ALL_INDICES, self._target_index]
-        self._position_error_vector = current_target_positions - self.car.data.root_pos_w[:, :2]
-        self._previous_position_error = self._position_error.clone()
-        self._position_error = torch.norm(self._position_error_vector, dim=-1)
+        # `self.car.data.root_pos_w` is the same as `self.car.data.root_link_pos_w`
+        current_gate_center_pos = self._target_positions[self.car._ALL_INDICES, self._target_index]
+        self._car_to_gate_center_vec = current_gate_center_pos - self.car.data.root_pos_w[:, :2]
+        self._prev_car_to_gate_center_dis = self._car_to_gate_center_dis.clone()
+        self._car_to_gate_center_dis = torch.norm(self._car_to_gate_center_vec, dim=-1)
 
-        heading = self.car.data.heading_w
-        target_heading_w = torch.atan2(
-            self._target_positions[self.car._ALL_INDICES, self._target_index, 1] - self.car.data.root_link_pos_w[:, 1],
-            self._target_positions[self.car._ALL_INDICES, self._target_index, 0] - self.car.data.root_link_pos_w[:, 0],
+        heading_angle = self.car.data.heading_w  # Yaw heading of the base frame (in radians).
+        target_heading_angle = torch.atan2(
+            self._target_positions[self.car._ALL_INDICES, self._target_index, 1] - self.car.data.root_pos_w[:, 1],
+            self._target_positions[self.car._ALL_INDICES, self._target_index, 0] - self.car.data.root_pos_w[:, 0],
         )
-        self.target_heading_error = torch.atan2(torch.sin(target_heading_w - heading), torch.cos(target_heading_w - heading))
+        self.target_heading_error = torch.atan2(torch.sin(target_heading_angle - heading_angle), torch.cos(target_heading_angle - heading_angle))
         
         camera_data = self.car_camera.data.output['rgb'] / 255  # (num_envs, h, w, c)
 
         return {"policy": camera_data.clone()}
     
     def _get_rewards(self) -> torch.Tensor:
-        position_progress_rew = self._previous_position_error - self._position_error
+        dis_change = self._prev_car_to_gate_center_dis - self._car_to_gate_center_dis
         target_heading_rew = torch.exp(-torch.abs(self.target_heading_error) / self.cfg.heading_coefficient)
-        goal_reached = self._position_error < self.cfg.position_tolerance
+        goal_reached = self._car_to_gate_center_dis < self.cfg.position_tolerance
         
         self._target_index = self._target_index + goal_reached
         self.task_completed = self._target_index > (self._num_goals - 1)
         self._target_index = self._target_index % self._num_goals
 
-        total_reward = position_progress_rew * self.cfg.position_progress_weight
+        total_reward = dis_change * self.cfg.position_progress_weight
         total_reward += target_heading_rew * self.cfg.heading_progress_weight
         total_reward += goal_reached * self.cfg.goal_reached_weight
 
@@ -254,10 +255,10 @@ class FinishGateDriveEnv(DirectRLEnv):
         self._reset_gates(env_ids, self.no_pass_gates, x_offset=0.5)
 
         self._target_index[env_ids] = 0
-        current_target_positions = self._target_positions[self.car._ALL_INDICES, self._target_index]
-        self._position_error_vector = current_target_positions[:, :2] - self.car.data.root_pos_w[:, :2]
-        self._position_error = torch.norm(self._position_error_vector, dim=-1)
-        self._previous_position_error = self._position_error.clone()
+        current_gate_center_pos = self._target_positions[self.car._ALL_INDICES, self._target_index]
+        self._car_to_gate_center_vec = current_gate_center_pos[:, :2] - self.car.data.root_pos_w[:, :2]
+        self._car_to_gate_center_dis = torch.norm(self._car_to_gate_center_vec, dim=-1)
+        self._prev_car_to_gate_center_dis = self._car_to_gate_center_dis.clone()
 
         heading = self.car.data.heading_w[:]
         target_heading_w = torch.atan2( 
@@ -270,6 +271,9 @@ class FinishGateDriveEnv(DirectRLEnv):
     def _reset_car(self, env_ids):
         num_envs = len(env_ids)
         default_state = self.car.data.default_root_state[env_ids]
+
+        # default_state: position (3) & quaternion orientation (4) & linear velocities (3) & angular velocities (3)
+        # quaternion: (w, x, y, z)
         car_pose = default_state[:, :7]
         car_velocities = default_state[:, 7:]
         joint_positions = self.car.data.default_joint_pos[env_ids]
@@ -279,9 +283,10 @@ class FinishGateDriveEnv(DirectRLEnv):
         x_offset = - 0.5 * self.env_spacing
         car_pose[:, 0] += x_offset
         
+        # If we rotate the car about the z-axis by an angle θ, then the quaternion should be `q = [cos(θ/2), sin(θ/2)k] = [cos(θ/2), 0, 0, sin(θ/2)]`
         angles = torch.pi / 4.0 * self._generate_rand_at_cente((num_envs))
-        car_pose[:, 3] = torch.cos(angles)
-        car_pose[:, 6] = torch.sin(angles)
+        car_pose[:, 3] = torch.cos(angles / 2)  # divided by 2 as half angle is used in quaternion
+        car_pose[:, 6] = torch.sin(angles / 2)  # divided by 2 as half angle is used in quaternion
 
         self.car.write_root_pose_to_sim(car_pose, env_ids)
         self.car.write_root_velocity_to_sim(car_velocities, env_ids)
