@@ -52,7 +52,7 @@ class AtariWrapper(gym.Wrapper):
         return obs
 
 
-def make_atari_env(env_name, frame_count, test_mode=False):
+def make_atari_env(env_name, frame_count, test_mode=False, video=False):
     env = gym.make(env_name)
     
     # env should be `<OrderEnforcing<PassiveEnvChecker<AtariEnv<BreakoutNoFrameskip-v4>>>>`
@@ -62,6 +62,9 @@ def make_atari_env(env_name, frame_count, test_mode=False):
             break
         env = env.env
 
+    if video:
+        env.render_mode = 'rgb_array'
+        
     env = atari_wrappers.AtariWrapper(
         env=env,
         clip_reward=not test_mode,

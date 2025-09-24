@@ -30,8 +30,16 @@ class AtariWrapper(gym.Wrapper):
         return obs, reward, done, info
     
 
-def make_atari_env(env_name):
+def make_atari_env(env_name, video=False):
     env = gym.make(env_name)
+
+    if video:
+        _env = env
+        while True:
+            if 'env' not in dir(_env):
+                break
+        _env = _env.env
+        _env.render_mode = 'rgb_array'
 
     # The env outputs an `obs` which is in the type of `np.float32`
     # We need to cast `obs` into `np.float32`

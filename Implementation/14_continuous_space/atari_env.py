@@ -16,8 +16,10 @@ import pybullet_envs
 
 class AtariWrapper(gym.Wrapper):
 
-    def __init__(self, env):
+    def __init__(self, env, return_trunc=False):
         super().__init__(env)
+
+        self.return_trunc = return_trunc
 
     def reset(self):
         obs = self.env.reset()
@@ -27,10 +29,14 @@ class AtariWrapper(gym.Wrapper):
     def step(self, action):
         obs, reward, done, info = self.env.step(action)
         obs = obs.astype(np.float32)
-        return obs, reward, done, info
+
+        if self.return_trunc:
+            return obs, reward, done, done, info
+        else:
+            return obs, reward, done, info
     
 
-def make_atari_env(env_name):
+def make_atari_env(env_name, video=False):
     env = gym.make(env_name)
     
     # env should be `<TimeLimit<OrderEnforcing<PassiveEnvChecker<MinitaurBulletEnv<MinitaurBulletEnv-v0>>>>>`
@@ -40,9 +46,14 @@ def make_atari_env(env_name):
             break
         env = env.env
 
+    return_trunc = False
+    if video:
+        return_trunc = True
+        env.render_mode = 'rgb_array'
+
     # env: <pybullet_envs.bullet.minitaur_gym_env.MinitaurBulletEnv object at 0x1412b4bb0>
     # The env `MinitaurBulletEnv-v0` which provided by `pybullet_envs` outputs a `obs` which is in the type of `np.float32`
     # We need to cast `obs` into `np.float32`
-    env = AtariWrapper(env)
+    env = AtariWrapper(env, return_trunc)
 
     return env

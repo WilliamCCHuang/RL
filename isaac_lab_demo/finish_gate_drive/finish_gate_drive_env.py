@@ -88,11 +88,11 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     steering_max = 0.75
 
     target_y_offset_scale = 1.0
-    position_tolerance = 0.25
+    car_to_gate_center_dis_tolerance = 0.25
+    cat_to_gate_center_dis_change_weight = 1.0
     goal_reached_weight = 10.0
-    position_progress_weight = 1.0
-    heading_coefficient = 0.25
-    heading_progress_weight = 0.05
+    car_heading_to_gate_center_coef = 0.25
+    car_heading_to_gate_center_weight = 0.05
 
     record_obs_view_video = False
     record_back_view_video = True
@@ -206,28 +206,31 @@ class FinishGateDriveEnv(DirectRLEnv):
         self._prev_car_to_gate_center_dis = self._car_to_gate_center_dis.clone()
         self._car_to_gate_center_dis = torch.norm(self._car_to_gate_center_vec, dim=-1)
 
-        heading_angle = self.car.data.heading_w  # Yaw heading of the base frame (in radians).
-        target_heading_angle = torch.atan2(
-            self._target_positions[self.car._ALL_INDICES, self._target_index, 1] - self.car.data.root_pos_w[:, 1],
-            self._target_positions[self.car._ALL_INDICES, self._target_index, 0] - self.car.data.root_pos_w[:, 0],
-        )
-        self.target_heading_error = torch.atan2(torch.sin(target_heading_angle - heading_angle), torch.cos(target_heading_angle - heading_angle))
+        car_heading_angle = self.car.data.heading_w  # Yaw heading of the base frame (in radians).
+        car_to_gate_center_angle = torch.atan2(
+            self._target_positions[self.car._ALL_INDICES, self._target_index, 1] - self.car.data.root_pos_w[:, 1],  # Δy between car and gate center
+            self._target_positions[self.car._ALL_INDICES, self._target_index, 0] - self.car.data.root_pos_w[:, 0],  # Δx between car and gate center
+        )  # angle (in radians) between the car-to-target direction and the +x axis
+        self.car_heading_to_gate_center_angle = torch.atan2(
+            torch.sin(car_to_gate_center_angle - car_heading_angle),
+            torch.cos(car_to_gate_center_angle - car_heading_angle)
+        )  # angle (in radians) between the car-to-target direction and car heading direction
         
         camera_data = self.car_camera.data.output['rgb'] / 255  # (num_envs, h, w, c)
 
         return {"policy": camera_data.clone()}
     
     def _get_rewards(self) -> torch.Tensor:
-        dis_change = self._prev_car_to_gate_center_dis - self._car_to_gate_center_dis
-        target_heading_rew = torch.exp(-torch.abs(self.target_heading_error) / self.cfg.heading_coefficient)
-        goal_reached = self._car_to_gate_center_dis < self.cfg.position_tolerance
+        car_to_gate_center_dis_change = self._prev_car_to_gate_center_dis - self._car_to_gate_center_dis  # positive if a car is closer to a gate center
+        heading_alignment_score = torch.exp(-torch.abs(self.car_heading_to_gate_center_angle) / self.cfg.heading_alignment_coef)
+        goal_reached = self._car_to_gate_center_dis < self.cfg.car_to_gate_center_dis_tolerance
         
         self._target_index = self._target_index + goal_reached
         self.task_completed = self._target_index > (self._num_goals - 1)
         self._target_index = self._target_index % self._num_goals
 
-        total_reward = dis_change * self.cfg.position_progress_weight
-        total_reward += target_heading_rew * self.cfg.heading_progress_weight
+        total_reward = car_to_gate_center_dis_change * self.cfg.cat_to_gate_center_dis_change_weight
+        total_reward += heading_alignment_score * self.cfg.car_heading_to_gate_center_weight
         total_reward += goal_reached * self.cfg.goal_reached_weight
 
         if torch.any(total_reward.isnan()):
