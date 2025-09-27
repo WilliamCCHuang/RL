@@ -222,7 +222,7 @@ class FinishGateDriveEnv(DirectRLEnv):
     
     def _get_rewards(self) -> torch.Tensor:
         car_to_gate_center_dis_change = self._prev_car_to_gate_center_dis - self._car_to_gate_center_dis  # positive if a car is closer to a gate center
-        heading_alignment_score = torch.exp(-torch.abs(self.car_heading_to_gate_center_angle) / self.cfg.heading_alignment_coef)
+        heading_alignment_score = torch.exp(-torch.abs(self.car_heading_to_gate_center_angle) / self.cfg.car_heading_to_gate_center_coef)
         goal_reached = self._car_to_gate_center_dis < self.cfg.car_to_gate_center_dis_tolerance
         
         self._target_index = self._target_index + goal_reached
