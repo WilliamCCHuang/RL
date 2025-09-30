@@ -1,7 +1,10 @@
 from __future__ import annotations
+import math
+from collections.abc import Sequence
 
 import torch
-from collections.abc import Sequence
+from torchvision.utils import make_grid
+from torchvision.transforms.functional import to_pil_image
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation, ArticulationCfg, RigidObject, RigidObjectCfg
@@ -94,6 +97,7 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     car_heading_to_gate_center_coef = 0.25
     car_heading_to_gate_center_weight = 0.05
 
+    save_obs_img = False
     record_obs_view_video = False
     record_back_view_video = True
     if record_obs_view_video:
@@ -206,7 +210,7 @@ class FinishGateDriveEnv(DirectRLEnv):
         self._prev_car_to_gate_center_dis = self._car_to_gate_center_dis.clone()
         self._car_to_gate_center_dis = torch.norm(self._car_to_gate_center_vec, dim=-1)
 
-        car_heading_angle = self.car.data.heading_w  # Yaw heading of the base frame (in radians).
+        car_heading_angle = self.car.data.heading_w  # the yaw heading of the base frame (in radians).
         car_to_gate_center_angle = torch.atan2(
             self._gate_center_positions[self.car._ALL_INDICES, self._target_index, 1] - self.car.data.root_pos_w[:, 1],  # Δy between car and gate center
             self._gate_center_positions[self.car._ALL_INDICES, self._target_index, 0] - self.car.data.root_pos_w[:, 0],  # Δx between car and gate center
@@ -217,6 +221,14 @@ class FinishGateDriveEnv(DirectRLEnv):
         )  # angle (in radians) between the car-to-target direction and the car heading direction
         
         camera_data = self.car_camera.data.output['rgb'] / 255  # (num_envs, h, w, c)
+
+        if self.cfg.save_obs_img:
+            camera_img = camera_data.permute(0, 3, 1, 2)
+            num_img = camera_img.shape[0]
+            nrow = round(math.sqrt(num_img))
+            camera_img = make_grid(camera_img, nrow=nrow)
+            camera_img = to_pil_image(camera_img)
+            camera_img.save('camera.png')
 
         return {"policy": camera_data.clone()}
     
@@ -232,9 +244,6 @@ class FinishGateDriveEnv(DirectRLEnv):
         total_reward = car_to_gate_center_dis_change * self.cfg.cat_to_gate_center_dis_change_weight
         total_reward += heading_alignment_score * self.cfg.car_heading_to_gate_center_weight
         total_reward += goal_reached * self.cfg.goal_reached_weight
-
-        if torch.any(total_reward.isnan()):
-            raise ValueError("Rewards cannot be NaN")
         
         self._visualize_waypoints(target_index=self._target_index.long())
 
@@ -262,14 +271,6 @@ class FinishGateDriveEnv(DirectRLEnv):
         self._car_to_gate_center_vec = current_gate_center_pos[:, :2] - self.car.data.root_pos_w[:, :2]
         self._car_to_gate_center_dis = torch.norm(self._car_to_gate_center_vec, dim=-1)
         self._prev_car_to_gate_center_dis = self._car_to_gate_center_dis.clone()
-
-        heading = self.car.data.heading_w[:]
-        target_heading_w = torch.atan2( 
-            self._gate_center_positions[:, 0, 1] - self.car.data.root_pos_w[:, 1],
-            self._gate_center_positions[:, 0, 0] - self.car.data.root_pos_w[:, 0],
-        )
-        self._heading_error = torch.atan2(torch.sin(target_heading_w - heading), torch.cos(target_heading_w - heading))
-        self._previous_heading_error = self._heading_error.clone()
 
     def _reset_car(self, env_ids):
         num_envs = len(env_ids)
@@ -301,7 +302,7 @@ class FinishGateDriveEnv(DirectRLEnv):
         self._gate_center_positions[env_ids, :, :] = 0.0  # (num_envs, num_goals, 2)
 
         spacing = 1 / self._num_goals  # 0.1
-        target_positions = torch.arange(-0.4, 0.5, spacing, device=self.device) * self.env_spacing
+        target_positions = torch.arange(-0.4, 0.501, spacing, device=self.device) * self.env_spacing
         assert len(target_positions) == self._num_goals
         y_offset = self.cfg.target_y_offset_scale * self._generate_rand_at_cente((num_envs, self._num_goals))
         y_offset[:, 0] = 0  # set the first gate in the front of the car
