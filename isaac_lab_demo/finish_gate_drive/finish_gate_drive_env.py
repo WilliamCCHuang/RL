@@ -66,8 +66,12 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     no_pass_gate_with_base_cfg: RigidObjectCfg = NO_PASS_GATE_WITH_BASE_CFG
 
     # env space
-    action_space = 2  # one for throttle, and another for steering
-    observation_space = [car_camera_cfg.height, car_camera_cfg.width, 3]
+    action_space = 2  # one is for the throttle, and another is for the steering
+    # observation_space = [car_camera_cfg.height, car_camera_cfg.width, 3]  # for camera only
+    observation_space = {
+        "camera": [car_camera_cfg.height, car_camera_cfg.width, 3],
+        "car": 5
+    }  # for multiple obs. One is for the camera, and another is for the state of the car
     state_space = 0
 
     # joint names
@@ -208,33 +212,50 @@ class FinishGateDriveEnv(DirectRLEnv):
         current_gate_center_pos = self._gate_center_positions[self.car._ALL_INDICES, self._target_index]
         self._car_to_gate_center_vec = current_gate_center_pos - self.car.data.root_pos_w[:, :2]
         self._prev_car_to_gate_center_dis = self._car_to_gate_center_dis.clone()
-        self._car_to_gate_center_dis = torch.norm(self._car_to_gate_center_vec, dim=-1)
+        self._car_to_gate_center_dis = torch.norm(self._car_to_gate_center_vec, dim=-1)  # (num_envs,)
 
         car_heading_angle = self.car.data.heading_w  # the yaw heading of the base frame (in radians).
         car_to_gate_center_angle = torch.atan2(
             self._gate_center_positions[self.car._ALL_INDICES, self._target_index, 1] - self.car.data.root_pos_w[:, 1],  # Δy between car and gate center
             self._gate_center_positions[self.car._ALL_INDICES, self._target_index, 0] - self.car.data.root_pos_w[:, 0],  # Δx between car and gate center
-        )  # angle (in radians) between the car-to-target direction and the +x axis
-        self.car_heading_to_gate_center_angle = torch.atan2(
+        )  # (num_envs,)  # angle (in radians) between the car-to-target direction and the +x axis
+        self._car_heading_to_gate_center_angle = torch.atan2(
             torch.sin(car_to_gate_center_angle - car_heading_angle),
             torch.cos(car_to_gate_center_angle - car_heading_angle)
-        )  # angle (in radians) between the car-to-target direction and the car heading direction
+        )  # (num_envs,) # angle (in radians) between the car-to-target direction and the car heading direction
         
-        camera_data = self.car_camera.data.output['rgb'] / 255  # (num_envs, h, w, c)
+        camera_obs = self.car_camera.data.output['rgb'] / 255  # (num_envs, h, w, c)
 
         if self.cfg.save_obs_img:
-            camera_img = camera_data.permute(0, 3, 1, 2)
+            camera_img = camera_obs.permute(0, 3, 1, 2)
             num_img = camera_img.shape[0]
             nrow = round(math.sqrt(num_img))
             camera_img = make_grid(camera_img, nrow=nrow)
             camera_img = to_pil_image(camera_img)
             camera_img.save('camera.png')
 
-        return {"policy": camera_data.clone()}
+        car_obs = torch.cat(
+            [
+                self.leatherback.data.root_lin_vel_b[:, 0].unsqueeze(dim=1),
+                self.leatherback.data.root_lin_vel_b[:, 1].unsqueeze(dim=1),
+                self.leatherback.data.root_ang_vel_w[:, 2].unsqueeze(dim=1),
+                self._throttle_state[:, 0].unsqueeze(dim=1),
+                self._steering_state[:, 0].unsqueeze(dim=1),
+            ], dim=1
+        )
+
+        obs = {
+            'policy': {
+                'camera': camera_obs.detach(),
+                'car': car_obs
+            }
+        }
+
+        return obs
     
     def _get_rewards(self) -> torch.Tensor:
         car_to_gate_center_dis_change = self._prev_car_to_gate_center_dis - self._car_to_gate_center_dis  # positive if a car is closer to a gate center
-        heading_alignment_score = torch.exp(-torch.abs(self.car_heading_to_gate_center_angle) / self.cfg.car_heading_to_gate_center_coef)
+        heading_alignment_score = torch.exp(-torch.abs(self._car_heading_to_gate_center_angle) / self.cfg.car_heading_to_gate_center_coef)
         goal_reached = self._car_to_gate_center_dis < self.cfg.car_to_gate_center_dis_tolerance
         
         self._target_index = self._target_index + goal_reached

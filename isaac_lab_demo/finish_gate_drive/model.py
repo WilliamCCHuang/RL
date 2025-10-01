@@ -52,6 +52,8 @@ class CNNBackboneSharedModel(GaussianMixin, DeterministicMixin, Model):
     
     # forward the input to compute model output according to the specified role
     def compute(self, inputs, role=""):
+        # inputs: {'states': (num_envs, WHC)}
+        
         if role == "policy":
             # save shared layers/network output to perform a single forward-pass
             states = unflatten_tensorized_space(self.observation_space, inputs.get("states"))
