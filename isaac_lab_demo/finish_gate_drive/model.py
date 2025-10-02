@@ -40,7 +40,7 @@ class CNNBackboneSharedModel(GaussianMixin, DeterministicMixin, Model):
         self.value_layer = nn.Sequential(
             nn.LazyLinear(32),
             nn.ELU(),
-            nn.Linear(32, 1)
+            nn.LazyLinear(1)
         )
 
     # override the .act(...) method to disambiguate its call
@@ -52,14 +52,40 @@ class CNNBackboneSharedModel(GaussianMixin, DeterministicMixin, Model):
     
     # forward the input to compute model output according to the specified role
     def compute(self, inputs, role=""):
+        # if `obs` is a single observation, then
+        # self.observation_space = (W, H, C)
         # inputs: {'states': (num_envs, WHC)}
+
+        # if `obs` is a multiple observation, then
+        # self.observation_space = gym.spaces.Dict('camera': Box(-inf, inf, (120, 160, 3), float32),
+        #                                          'car': Box(-inf, inf, (5,), float32))
+        # inputs: {'states': (num_envs, WHC + dim_car_state)}
         
         if role == "policy":
             # save shared layers/network output to perform a single forward-pass
             states = unflatten_tensorized_space(self.observation_space, inputs.get("states"))
+            # if `obs` is a single observation, then
+            # states: (num_envs, H, W, 3)
+            # # if `obs` is a multiple observation, then
+            # states: {
+            #   'camera_img': (num_envs, H, W, 3),
+            #   'car_state': (num_envs, dim_car_state)
+            # }
+
             # taken_actions = unflatten_tensorized_space(self.action_space, inputs.get("taken_actions"))
-            features = self.backbone(torch.permute(states, (0, 3, 1, 2)))
+
+            car_state = None
+            if isinstance(states, dict):
+                camera_img = states['camera_img']
+                car_state = states['car_state']
+            else:
+                camera_img = states
+
+            features = self.backbone(torch.permute(camera_img, (0, 3, 1, 2)))
+            if car_state is not None:
+                features = torch.cat([features, car_state], dim=1)
             self._shared_output = features
+
             output = self.policy_layer(features)
             return output, self.log_std_parameter, {}
         
@@ -68,7 +94,17 @@ class CNNBackboneSharedModel(GaussianMixin, DeterministicMixin, Model):
             if self._shared_output is None:
                 states = unflatten_tensorized_space(self.observation_space, inputs.get("states"))
                 # taken_actions = unflatten_tensorized_space(self.action_space, inputs.get("taken_actions"))
-                features = self.backbone(torch.permute(states, (0, 3, 1, 2)))
+
+                car_state = None
+                if isinstance(states, dict):
+                    camera_img = states['camera_img']
+                    car_state = states['car_state']
+                else:
+                    camera_img = states
+
+                features = self.backbone(torch.permute(camera_img, (0, 3, 1, 2)))
+                if car_state is not None:
+                    features = torch.cat([features, car_state], dim=1)
                 shared_output = features
             else:
                 shared_output = self._shared_output

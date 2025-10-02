@@ -4,14 +4,18 @@ The goal of this project is to train an autonomous vehicle to navigate through a
 
 ![](./materials/back_view.png)
 
+# Observation
+
+
+
 # Model
 
 A custom model is used because the flexibility of SKRL’s model configuration is relatively limited.
 
 The custom model consists of three components:
 * `backbone`: A CNN module that extracts the feature map from the image of the car camera.
-* `policy_layer`: A module consisting of two linear layers. It accepts the feature map and then computes the policy to perform action.
-* `value_layer`: A module consisting of two linear layers. It accepts the feature map and then predict the value of the current state.
+* `policy_layer`: A module consisting of two linear layers. It accepts the feature map and the state of the car, and then computes the policy to perform action.
+* `value_layer`: A module consisting of two linear layers. It accepts the feature map and the state of the car, and then predict the value of the current state.
 
 # How to Train?
 
