@@ -70,7 +70,7 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     # observation_space = [car_camera_cfg.height, car_camera_cfg.width, 3]  # for camera only
     observation_space = {
         "camera_img": [car_camera_cfg.height, car_camera_cfg.width, 3],
-        "car_state": 5
+        "car_state": 8
     }
     # for multiple obs. One is for the camera, and another is for the state of the car
     # the keys must be matched with those of the returned observation in `self.`
@@ -238,9 +238,7 @@ class FinishGateDriveEnv(DirectRLEnv):
 
         car_state = torch.cat(
             [
-                self.car.data.root_lin_vel_b[:, 0].unsqueeze(dim=1),
-                self.car.data.root_lin_vel_b[:, 1].unsqueeze(dim=1),
-                self.car.data.root_ang_vel_w[:, 2].unsqueeze(dim=1),
+                self.car.data.root_link_lin_vel_w,
                 self._throttle_state[:, 0].unsqueeze(dim=1),
                 self._steering_state[:, 0].unsqueeze(dim=1),
             ], dim=1
