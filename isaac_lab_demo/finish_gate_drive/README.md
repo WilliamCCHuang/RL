@@ -7,12 +7,12 @@ The goal of this project is to train an autonomous vehicle to navigate through a
 # Observation
 
 Two kinds of observation are provided to the agent:
-1. The image recorded by the car's camera. Shape is $(\text{num\_envs}, H, W, 3)$
+1. The image recorded by the car's camera. Shape is `(num_envs, H, W, 3)`
 2. The car's state which includes
     * the root link linear and angular velocities in simulation world frame, and 
     * the actions applied on the throttle and steering.
     
-    Shape is $(\text{num\_envs}, 8)$.
+    Shape is `(num_envs, 8)`.
 
 # Action
 

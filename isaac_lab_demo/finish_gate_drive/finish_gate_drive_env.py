@@ -96,21 +96,10 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     steering_scale = 0.1
     steering_max = 0.75
 
-    gate_center_y_offset_scales = {
-        0: 1.0,
-        1: 1.0,
-        2: 2.0
-    }
-    show_waypoints = {
-        0: True,
-        1: False,
-        2: False
-    }
-    car_to_gate_dis_target = {
-        0: 'gate_center',
-        1: 'gate_center',
-        2: 'gate_plane'
-    }
+    num_curriculum = 3
+    gate_center_y_offset_scales = [1.0, 1.0, 2.0]
+    show_waypoints = [True, False, False]
+    car_to_gate_dis_targets = ['gate_center', 'gate_plane', 'gate_plane']
     car_to_gate_center_dis_tolerance = 0.25
     cat_to_gate_center_dis_change_weight = 1.0
     goal_reached_weight = 10.0
@@ -317,7 +306,7 @@ class FinishGateDriveEnv(DirectRLEnv):
         self._prev_car_to_gate_center_dis = self._car_to_gate_center_dis.clone()
 
     def _pass_curriculum(self, env_ids):
-        if self._curriculum_idx == max(self.cfg.gate_center_y_offset_scales.keys()):
+        if self._curriculum_idx == self.cfg.num_curriculum - 1:
             return
         
         complete_rate = ((self._goal_index[env_ids] + 1) / self._num_goals).mean()
