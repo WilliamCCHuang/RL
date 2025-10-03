@@ -310,6 +310,7 @@ class FinishGateDriveEnv(DirectRLEnv):
             return
         
         completed_gaol_rate = ((self._goal_index[env_ids] + 1) / self._num_goals).mean()
+        print(f'Completed goal: {int(completed_gaol_rate * 100)}%')
 
         if completed_gaol_rate > 0.8:
             self._curriculum_idx += 1
