@@ -6,32 +6,30 @@ The goal of this project is to train an autonomous vehicle to navigate through a
 
 # Observation
 
-Two kinds of observation are provided to the agent:
-1. The image recorded by the car's camera. Shape is `(num_envs, H, W, 3)`
-2. The car's state which includes
-    * the root link linear and angular velocities in simulation world frame, and 
-    * the actions applied on the throttle and steering.
-    
-    Shape is `(num_envs, 8)`.
+The agent receives two types of observations:
+1. The image captured by the car’s camera, with shape `(num_envs, H, W, 3)`.
+2. The car’s state with shape `(num_envs, 8)`. It includes:
+    * the root link’s linear and angular velocities in the simulation world frame, and
+    * the actions applied to the throttle and steering.
 
 # Action
 
-The agent needs to perform two kinds of actions:
-1. The throttle joint velocity. This is the wheel velocity.
-2. The steering angle. It determins the direction of the car.
+The agent needs to perform two types of actions:
+1. Throttle joint velocity – controls the wheel velocity.
+2. Steering angle – determines the direction of the car.
 
 # Model
 
-A custom model is used because the flexibility of SKRL’s model configuration is relatively limited.
-
+A custom model is used because SKRL’s model configuration offers limited flexibility.
 The custom model consists of three components:
-* `backbone`: A CNN module that extracts the feature map from the image of the car camera.
-* `policy_layer`: A module consisting of two linear layers. It accepts the feature map and the state of the car, and then computes the policy to perform action. The output dimension is $(\text{num\_envs}, 2)$.
-* `value_layer`: A module consisting of two linear layers. It accepts the feature map and the state of the car, and then predict the value of the current state.  The output dimension is $(\text{num\_envs}, 1)$.
+* `backbone`: A CNN module that extracts feature maps from the car camera images.
+* `policy_layer`: A module with two linear layers. It takes as input both the feature map and the car’s state, then computes the policy for action selection. The output shape is `(num_envs, 2)`.
+* `value_layer`: A module with two linear layers. It takes as input both the feature map and the car’s state, then predicts the value of the current state. The output shape is `(num_envs, 1)`.
 
 # How to Train?
 
-Go to the folder `finish_gate_drive` and run the following command:
+Navigate to the finish_gate_drive folder and run the following command:
+
 ```
 python skrl_train.py \
     --task Finish-Gate-Drive-Direct \
