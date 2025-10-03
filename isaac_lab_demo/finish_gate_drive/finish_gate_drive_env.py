@@ -309,9 +309,9 @@ class FinishGateDriveEnv(DirectRLEnv):
         if self._curriculum_idx == self.cfg.num_curriculum - 1:
             return
         
-        complete_rate = ((self._goal_index[env_ids] + 1) / self._num_goals).mean()
+        completed_gaol_rate = ((self._goal_index[env_ids] + 1) / self._num_goals).mean()
 
-        if complete_rate > 0.8:
+        if completed_gaol_rate > 0.8:
             self._curriculum_idx += 1
             print(f'Enter the next lesson {self._curriculum_idx}')
 
