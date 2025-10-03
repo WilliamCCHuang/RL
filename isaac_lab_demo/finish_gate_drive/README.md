@@ -9,7 +9,7 @@ The goal of this project is to train an autonomous vehicle to navigate through a
 The agent receives two types of observations:
 1. The image captured by the car’s camera, with shape `(num_envs, H, W, 3)`.
 2. The car’s state with shape `(num_envs, 8)`. It includes:
-    * the root link’s linear and angular velocities in the simulation world frame, and
+    * the car’s linear and angular velocities in the simulation world frame, and
     * the actions applied to the throttle and steering.
 
 ## Action
@@ -25,6 +25,19 @@ The custom model consists of three components:
 * `backbone`: A CNN module that extracts feature maps from the car camera images.
 * `policy_layer`: A module with two linear layers. It takes as input both the feature map and the car’s state, then computes the policy for action selection. The output shape is `(num_envs, 2)`.
 * `value_layer`: A module with two linear layers. It takes as input both the feature map and the car’s state, then predicts the value of the current state. The output shape is `(num_envs, 1)`.
+
+## Curriculum
+
+The curriculum technique is applied to accelerate training. The curriculum settings are shown in the table below:
+
+| Curriculum Index | Show Way Points | Car to Gate Distance Tolerance | Gate Y Offset Scale |
+|:----------------:| :-------------: | :----------------------------: | :-----------------: |
+|0| ✅ | 0.25 | 1.0 |
+|1| ❌ | 0.1 | 1.0 |
+|2| ❌ | 0.1 | 2.0 |
+
+* The waypoints are represented by green and red half-spheres positioned at the center of each gate. They serve as prominent visual cues, helping the car learn to pass through the middle of the gate rather than merely brushing past the two poles.
+* As the car progresses through the curriculum, the gates exhibit greater variation in their positions along the y-axis, while the criteria for passing through a gate become stricter (achieved by reducing the distance tolerance).
 
 ## How to Train?
 

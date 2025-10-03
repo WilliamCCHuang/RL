@@ -95,13 +95,14 @@ class FinishGateDriveEnvCfg(DirectRLEnvCfg):
     throttle_max = 50
     steering_scale = 0.1
     steering_max = 0.75
+    gate_width = 1.0  # should not be modified
 
     num_curriculum = 3
     gate_center_y_offset_scales = [1.0, 1.0, 2.0]
     show_waypoints = [True, False, False]
-    car_to_gate_dis_targets = ['gate_center', 'gate_plane', 'gate_plane']
-    car_to_gate_center_dis_tolerance = 0.25
-    cat_to_gate_center_dis_change_weight = 1.0
+    car_to_gate_targets = ['gate_center', 'gate_region', 'gate_region']
+    car_to_gate_dis_tolerances = [0.25, 0.1, 0.1]
+    cat_to_gate_dis_change_weight = 1.0
     goal_reached_weight = 10.0
     car_heading_to_gate_center_coef = 0.25
     car_heading_to_gate_center_weight = 0.05
@@ -214,23 +215,21 @@ class FinishGateDriveEnv(DirectRLEnv):
         self.car.set_joint_position_target(self._steering_action, joint_ids=self._steering_dof_idx)
 
     def _get_observations(self) -> dict:
-        # `self.car.data.root_pos_w` is the same as `self.car.data.root_link_pos_w`
-        current_gate_center_pos = self._gate_center_positions[self.car._ALL_INDICES, self._goal_index]
-        self._car_to_gate_center_vec = current_gate_center_pos - self.car.data.root_pos_w[:, :2]
-        self._prev_car_to_gate_center_dis = self._car_to_gate_center_dis.detach()
-        self._car_to_gate_center_dis = torch.norm(self._car_to_gate_center_vec, dim=-1)  # (num_envs,)
-
-        car_heading_angle = self.car.data.heading_w  # the yaw heading of the base frame (in radians).
-        car_to_gate_center_angle = torch.atan2(
-            self._gate_center_positions[self.car._ALL_INDICES, self._goal_index, 1] - self.car.data.root_pos_w[:, 1],  # Δy between car and gate center
-            self._gate_center_positions[self.car._ALL_INDICES, self._goal_index, 0] - self.car.data.root_pos_w[:, 0],  # Δx between car and gate center
-        )  # (num_envs,)  # angle (in radians) between the car-to-target direction and the +x axis
-        self._car_heading_to_gate_center_angle = torch.atan2(
-            torch.sin(car_to_gate_center_angle - car_heading_angle),
-            torch.cos(car_to_gate_center_angle - car_heading_angle)
-        )  # (num_envs,) # angle (in radians) between the car-to-target direction and the car heading direction
-        
         camera_img = self.car_camera.data.output['rgb'] / 255  # (num_envs, h, w, c)
+        car_state = torch.cat(
+            [
+                self.car.data.root_link_vel_w,
+                self._throttle_state[:, 0].unsqueeze(dim=1),
+                self._steering_state[:, 0].unsqueeze(dim=1),
+            ], dim=1
+        )
+        
+        obs = {
+            'policy': {
+                'camera_img': camera_img.detach(),
+                'car_state': car_state
+            }
+        }
 
         if self.cfg.save_obs_img:
             camera_img = camera_img.permute(0, 3, 1, 2)
@@ -240,45 +239,77 @@ class FinishGateDriveEnv(DirectRLEnv):
             camera_img = to_pil_image(camera_img)
             camera_img.save('camera_image.png')
 
-        car_state = torch.cat(
-            [
-                self.car.data.root_link_vel_w,
-                self._throttle_state[:, 0].unsqueeze(dim=1),
-                self._steering_state[:, 0].unsqueeze(dim=1),
-            ], dim=1
-        )
-
-        # Two kinds of observation are provided to the agent:
-        # 1: an image recorded by the car camera
-        # 2: the car's state:
-        #   * root link velocity [lin_vel, ang_vel] in simulation world frame.
-        #   * action applied on the throttle
-        #   * action applied on the steering
-        obs = {
-            'policy': {
-                'camera_img': camera_img.detach(),
-                'car_state': car_state
-            }
-        }
-
         return obs
     
+    def _compute_car_to_gate_dis(self):
+        # `car.data.root_pos_w` is the same as `car.data.root_link_pos_w`
+        car_xy = self.car.data.root_pos_w[:, :2]  # (num_envs, 2)
+        current_gate_center_xy = self._gate_center_positions[self.car._ALL_INDICES, self._goal_index]  # (num_envs, 2)
+
+        if self.cfg.car_to_gate_targets[self._curriculum_idx] == 'gate_center':
+            car_to_gate_target_vec = current_gate_center_xy - car_xy
+
+        elif self.cfg.car_to_gate_targets[self._curriculum_idx] == 'gate_region':
+            car_x, car_y = car_xy.split(1, dim=1)
+            gate_center_x, gate_center_y = current_gate_center_xy.split(1, dim=1)
+
+            x_diff = torch.abs(car_x - gate_center_x)
+            
+            car_y_proj_within_gate = (car_y >= gate_center_y - self.cfg.gate_width / 2) & (car_y <= gate_center_y + self.cfg.gate_width / 2)
+            y_diff = torch.zeros_like(car_y)
+            y_diff[car_y_proj_within_gate] = 0.0
+
+            car_to_left_pole_y_diff = torch.abs(car_y - (gate_center_y - self.cfg.gate_width))
+            car_to_right_pole_y_diff = torch.abs(car_y - (gate_center_y + self.cfg.gate_width))
+            y_diff[~car_y_proj_within_gate] = torch.min(car_to_left_pole_y_diff[~car_y_proj_within_gate], car_to_right_pole_y_diff[~car_y_proj_within_gate])
+
+            car_to_gate_target_vec = torch.cat([x_diff, y_diff], dim=1)  # (num_envs, 2)
+
+        else:
+            raise ValueError(f'Invalid car_to_gate_targets: {self.cfg.car_to_gate_targets[self._curriculum_idx]}')
+        
+        car_to_gate_target_dis = torch.norm(car_to_gate_target_vec, dim=-1)  # (num_envs,)
+
+        return car_to_gate_target_dis
+    
+    def _compute_car_heading_to_gate_center_angle(self):
+        car_heading_angle = self.car.data.heading_w  # the yaw heading of the base frame (in radians).
+        
+        car_to_gate_center_angle = torch.atan2(
+            self._gate_center_positions[self.car._ALL_INDICES, self._goal_index, 1] - self.car.data.root_pos_w[:, 1],  # Δy between car and gate center
+            self._gate_center_positions[self.car._ALL_INDICES, self._goal_index, 0] - self.car.data.root_pos_w[:, 0],  # Δx between car and gate center
+        )  # (num_envs,)  # angle (in radians) between the car-to-target direction and the +x axis
+        
+        car_heading_to_gate_center_angle = torch.atan2(
+            torch.sin(car_to_gate_center_angle - car_heading_angle),
+            torch.cos(car_to_gate_center_angle - car_heading_angle)
+        )  # (num_envs,) # angle (in radians) between the car-to-target direction and the car heading direction
+
+        return car_heading_to_gate_center_angle
+    
     def _get_rewards(self) -> torch.Tensor:
-        car_to_gate_center_dis_change = self._prev_car_to_gate_center_dis - self._car_to_gate_center_dis  # positive if a car is closer to a gate center
+        self._prev_car_to_gate_dis = self._car_to_gate_dis.detach()
+        self._car_to_gate_dis = self._compute_car_to_gate_dis()
+        self._car_heading_to_gate_center_angle = self._compute_car_heading_to_gate_center_angle()
+
+        car_to_gate_dis_change = self._prev_car_to_gate_dis - self._car_to_gate_dis  # positive if a car is closer to a gate center
         heading_alignment_score = torch.exp(-torch.abs(self._car_heading_to_gate_center_angle) / self.cfg.car_heading_to_gate_center_coef)
-        goal_reached = self._car_to_gate_center_dis < self.cfg.car_to_gate_center_dis_tolerance
+        goal_reached = self._is_goal_reached()
         
         self._goal_index = self._goal_index + goal_reached
         self._task_completed = self._goal_index > (self._num_goals - 1)
         self._goal_index = self._goal_index % self._num_goals
 
-        total_reward = car_to_gate_center_dis_change * self.cfg.cat_to_gate_center_dis_change_weight
+        total_reward = car_to_gate_dis_change * self.cfg.cat_to_gate_dis_change_weight
         total_reward += heading_alignment_score * self.cfg.car_heading_to_gate_center_weight
         total_reward += goal_reached * self.cfg.goal_reached_weight
         
         self._visualize_waypoints(target_index=self._goal_index.long())
 
         return total_reward
+    
+    def _is_goal_reached(self):
+        return self._car_to_gate_dis < self.cfg.car_to_gate_dis_tolerances[self._curriculum_idx]
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         # should return a tuple `(is_terminalted, time_out)`
@@ -300,21 +331,18 @@ class FinishGateDriveEnv(DirectRLEnv):
         self._reset_gates(env_ids, self.no_pass_gates, x_offset=0.5)
 
         self._goal_index[env_ids] = 0
-        current_gate_center_pos = self._gate_center_positions[self.car._ALL_INDICES, self._goal_index]
-        self._car_to_gate_center_vec = current_gate_center_pos[:, :2] - self.car.data.root_pos_w[:, :2]
-        self._car_to_gate_center_dis = torch.norm(self._car_to_gate_center_vec, dim=-1)
-        self._prev_car_to_gate_center_dis = self._car_to_gate_center_dis.clone()
+        self._car_to_gate_dis = self._compute_car_to_gate_dis()
+        self._prev_car_to_gate_dis = self._car_to_gate_dis.clone()
 
     def _pass_curriculum(self, env_ids):
-        if self._curriculum_idx == self.cfg.num_curriculum - 1:
-            return
-        
         completed_gaol_rate = ((self._goal_index[env_ids] + 1) / self._num_goals).mean()
-        print(f'Completed goal: {int(completed_gaol_rate * 100)}%')
+        msg = f'Completed goal: {int(completed_gaol_rate * 100)}%'
 
-        if completed_gaol_rate > 0.8:
+        if completed_gaol_rate > 0.8 and self._curriculum_idx < self.cfg.num_curriculum - 1:
             self._curriculum_idx += 1
-            print(f'Enter the next lesson {self._curriculum_idx}')
+            msg += f' => Enter the next lesson {self._curriculum_idx}'
+        
+        print(msg)
 
     def _reset_car(self, env_ids):
         num_envs = len(env_ids)
@@ -370,6 +398,7 @@ class FinishGateDriveEnv(DirectRLEnv):
 
     def _visualize_waypoints(self, markers_pos=None, target_index=None):
         if not self.cfg.show_waypoints[self._curriculum_idx]:
+            self.waypoints.set_visibility(visible=False)  # turn off the way points
             return 
         
         visualize_pos = None
