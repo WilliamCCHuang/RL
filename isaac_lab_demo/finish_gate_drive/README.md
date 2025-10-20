@@ -39,9 +39,13 @@ The curriculum technique is applied to accelerate training. The curriculum setti
 * The waypoints are represented by green and red half-spheres positioned at the center of each gate. They serve as prominent visual cues, helping the car learn to pass through the middle of the gate rather than merely brushing past the two poles.
 * As the car progresses through the curriculum, the gates exhibit greater variation in their positions along the y-axis, while the criteria for passing through a gate become stricter (achieved by reducing the distance tolerance).
 
+![](./materials/step-0.mp4)
+![](./materials/curriculum-0.mp4)
+![](./materials/curriculum-2.mp4)
+
 ## How to Train?
 
-Navigate to the finish_gate_drive folder and run the following command:
+Navigate to the finish_gate_drive folder and run the following command to train the model using the PPO algorithm from SKRL:
 
 ```
 python skrl_train.py \
