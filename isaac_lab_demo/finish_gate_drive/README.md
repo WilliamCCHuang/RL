@@ -30,18 +30,33 @@ The custom model consists of three components:
 
 The curriculum technique is applied to accelerate training. The curriculum settings are shown in the table below:
 
-| Curriculum Index | Show Way Points | Car to Gate Distance Tolerance | Gate Y Offset Scale |
+| Curriculum Config | Show Way Points | Car to Gate Distance Tolerance | Gate Y Offset Scale |
 |:----------------:| :-------------: | :----------------------------: | :-----------------: |
-|0| ✅ | 0.25 | 1.0 |
-|1| ❌ | 0.1 | 1.0 |
-|2| ❌ | 0.1 | 2.0 |
+|1| ✅ | 0.25 | 1.0 |
+|2| ❌ | 0.1 | 1.0 |
+|3| ❌ | 0.1 | 2.0 |
 
 * The waypoints are represented by green and red half-spheres positioned at the center of each gate. They serve as prominent visual cues, helping the car learn to pass through the middle of the gate rather than merely brushing past the two poles.
 * As the car progresses through the curriculum, the gates exhibit greater variation in their positions along the y-axis, while the criteria for passing through a gate become stricter (achieved by reducing the distance tolerance).
 
-![](./materials/step-0.mp4)
-![](./materials/curriculum-0.mp4)
-![](./materials/curriculum-2.mp4)
+<table class="field">
+  <tr>
+    <th><center>Initial Training</center></th>
+    <th><center>Curriculum 1</center></th>
+    <th><center>Curriculum 3</center></th>
+  </tr>
+  <tr>
+    <td>
+      <img src="./materials/step-0.gif">
+    </td>
+    <td>
+      <img src="./materials/curriculum-0.gif">
+    </td>
+    <td>
+      <img src="./materials/curriculum-2.gif">
+    </td>
+  </tr>
+</table>
 
 ## How to Train?
 
