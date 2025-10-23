@@ -13,7 +13,7 @@ from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from isaaclab.utils import configclass
 from isaaclab.utils.math import sample_uniform
 
-from .cart_with_double_pendulum import CART_WITH_DOUBLE_PENDULUM_CFG
+from cfgs.cart_with_double_pendulum import CART_WITH_DOUBLE_PENDULUM_CFG
 
 
 @configclass
